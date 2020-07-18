@@ -246,6 +246,7 @@ class APR_eviction_policy: public eviction_policy
 
 	std::list<unsigned short> lifo_lt; // page의 cell index를 fetch 순서대로 저장
 
+	bool warm_up;
 	bool policy;
 	unsigned long time;
 	unsigned long last_stime;

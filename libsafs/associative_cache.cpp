@@ -768,6 +768,7 @@ void APR_eviction_policy::init()
 {
 	clock_head = 0;
 	lifo_head = 0;
+	warm_up = true;
 	policy = CLOCK;
 	time = 0;
 	last_stime = 0;
@@ -806,19 +807,23 @@ thread_safe_page *APR_eviction_policy::evict_page(
 			<< " ("<< (clock_head - 1) % npages << ")" << std::endl;
 	else std::cout << "CLOCK Victim is NULL" << std::endl;
 #endif
+	if (clock_victim->get_pg_offset() > 0)
+		warm_up = false;
 
-	lifo_victim = lifo_evict_page(buf);			// get lifo victim
+	if (!warm_up){
+		lifo_victim = lifo_evict_page(buf);			// get lifo victim
 
 #ifdef PRINT_APR_DEBUG
-	if (lifo_victim)
-		std::cout << "LIFO Victim: " << lifo_victim->get_pg_offset()
-			<< " ("<< lifo_head << ")" << std::endl;
-	else std::cout << "LIFO Victim is NULL" << std::endl;
+		if (lifo_victim)
+			std::cout << "LIFO Victim: " << lifo_victim->get_pg_offset()
+				<< " ("<< lifo_head << ")" << std::endl;
+		else std::cout << "LIFO Victim is NULL" << std::endl;
 #endif
 
-	ret = actual_victim(clock_victim, lifo_victim);	// get actual victim
+		ret = actual_victim(clock_victim, lifo_victim);	// get actual victim
+	}
 
-	return ret;
+	return (warm_up ? clock_victim : ret);
 }
 
 void APR_eviction_policy::show_stats(void)
@@ -894,6 +899,11 @@ thread_safe_page *APR_eviction_policy::clock_evict_page(
 				return NULL;
 			continue;
 		}
+		if (warm_up) {
+			clock_head = clock_offset + 1;
+			ret = pg;
+			break;
+		}
 
 		if (policy == CLOCK){
 			if (pg->evicted_by_lifo()){
@@ -905,8 +915,6 @@ thread_safe_page *APR_eviction_policy::clock_evict_page(
 					clock_page[clock_offset].stale = false;
 					continue;
 				}
-
-				//TODO policy changed
 			}
 		}
 		else {
