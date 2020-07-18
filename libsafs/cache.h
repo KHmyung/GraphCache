@@ -232,8 +232,8 @@ public:
 		this->stime = time;
 	}
 	bool test_and_clear_page_ref() {
-	//	bool ret = pg->get_ref() ? true : false;
-		bool ret = referenced();
+		bool ret = get_ref() || referenced();
+//		bool ret = referenced();
 		set_referenced(false);
 		return ret;
 	}

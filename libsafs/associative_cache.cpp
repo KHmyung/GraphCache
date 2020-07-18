@@ -35,6 +35,7 @@ namespace safs
 {
 
 // KH
+//#define PRINT_APR_DEBUG
 ghost_t *global_ghost;
 std::atomic<long> nr_ghost;
 
@@ -359,12 +360,11 @@ page *hash_cell::search(const page_id_t &pg_id, page_id_t &old_id)
 #else
 		ret = get_empty_page();
 #endif
-
-		std::cout << ret->get_offset() << std::endl;
 		if (ret == NULL) {
 			_lock.unlock();
 			return NULL;
 		}
+		else std::cout << ret->get_offset() << std::endl;
 		// We need to clear flags here.
 		// KH: victim page handling
 		ret->set_data_ready(false);
@@ -461,6 +461,7 @@ thread_safe_page *hash_cell::get_empty_page()
 	return ret;
 }
 
+#ifdef USE_APR
 // KH: get_empty_page in APR
 thread_safe_page *hash_cell::get_empty_page(off_t offset)
 {
@@ -489,9 +490,9 @@ thread_safe_page *hash_cell::get_empty_page(off_t offset)
 	if (ret->get_hits() > 0)
 		shadow.add(shadow_page(*ret));
 #endif
-
 	return ret;
 }
+#endif
 
 /*
  * the end of the vector points to the pages
@@ -762,7 +763,6 @@ thread_safe_page *clock_eviction_policy::evict_page(
 // KH: APR : evict_page
 #define CLOCK 0
 #define LIFO 1
-//#define PRINT_APR_DEBUG
 
 void APR_eviction_policy::init()
 {
@@ -830,7 +830,7 @@ void APR_eviction_policy::update_policy(void)
 #ifdef PRINT_APR_DEBUG
 	std::cout << "SCORE: " << curr_score;
 #endif
-	if (curr_score >= 0){
+	if (curr_score > 0){
 		policy = LIFO;
 
 #ifdef PRINT_APR_DEBUG
@@ -871,7 +871,9 @@ thread_safe_page *APR_eviction_policy::clock_evict_page(
 #endif
 			num_io_pending++;
 			if (num_io_pending == buf.get_num_pages()){
+#ifdef PRINT_APR_DEBUG
 				std::cout << "(CLOCK) ALL Pending" << std::endl;
+#endif
 				return NULL;
 			}
 			continue;
@@ -916,8 +918,10 @@ thread_safe_page *APR_eviction_policy::clock_evict_page(
 			}
 		}
 		clock_head = clock_offset + 1;
+		pg->reset_hits();
 		ret = pg;
 	} while (ret == NULL);
+	ret->set_data_ready(false);
 	return ret;
 }
 
@@ -955,7 +959,9 @@ thread_safe_page *APR_eviction_policy::lifo_evict_page(
 #endif
 			num_io_pending++;
 			if (num_io_pending == buf.get_num_pages()){
+#ifdef PRINT_APR_DEBUG
 				std::cout << "(LIFO) All Pending" << std::endl;
+#endif
 				return NULL;
 			}
 			continue;
@@ -1000,7 +1006,9 @@ thread_safe_page *APR_eviction_policy::lifo_evict_page(
 		}
 		lifo_head = lifo_offset;
 		ret = pg;
+		pg->reset_hits();
 	} while (ret == NULL);
+	ret->set_data_ready(false);
 	return ret;
 }
 
@@ -1066,6 +1074,21 @@ thread_safe_page *APR_eviction_policy::actual_victim(
 			}
 		}
 		else {
+			if (clock) {
+				if (clock->is_evicted()){
+					assert(clock->evicted_by_lifo());
+					end_challenge(clock->get_stime(), LIFO);
+					if (clock_page[clock_head-1].stale = true){
+						renew_page(clock, CLOCK);
+					}
+					else {
+						reset_challenge(clock, clock_head-1);
+					}
+				}
+				else {
+					start_challenge(clock, CLOCK);
+				}
+			}
 			if (lifo) {
 				if (lifo->is_evicted()){
 					assert(!is_ghost(lifo->get_pg_offset()));
@@ -1082,21 +1105,6 @@ thread_safe_page *APR_eviction_policy::actual_victim(
 				}
 				ret = lifo;
 			}
-			if (clock) {
-				if (clock->is_evicted()){
-					assert(clock->evicted_by_lifo());
-					end_challenge(clock->get_stime(), LIFO);
-					if (clock_page[clock_head-1].stale = true){
-						renew_page(clock, CLOCK);
-					}
-					else {
-						reset_challenge(clock, clock_head-1);
-					}
-				}
-				else {
-					start_challenge(clock, CLOCK);
-				}
-			}
 		}
 	}
 
@@ -1112,8 +1120,7 @@ void APR_eviction_policy::renew_page(
 	lifo_lt.push_back(pg_idx);
 
 #ifdef PRINT_APR_DEBUG
-	std::cout << "(LIFO) Size of list is " << lifo_lt.size() << std::endl;
-	std::cout << "(LIFO) Last In: " << lifo_lt.back() << std::endl;
+	std::cout << "(LIFO-renew) Replace: " << lifo_lt.back() << std::endl;
 #endif
 
 	reset_challenge(pg, pg_idx);
@@ -1199,6 +1206,9 @@ void APR_eviction_policy::pevict_page(
 		clock_page[lifo_head].stale = true;	// stale the clock page
 		lifo_lt.remove(lifo_head);
 		lifo_lt.push_back(lifo_head);
+#ifdef PRINT_APR_DEBUG
+		std::cout << "(LIFO) Replace: " << lifo_lt.back() << std::endl;
+#endif
 	}
 
 	if (pg->get_pg_offset() >= 0)
@@ -1305,19 +1315,17 @@ bool APR_eviction_policy::is_ghost(off_t offset)
 
 associative_cache::~associative_cache()
 {
-	unsigned int nr_lifo = 0;
 	for (unsigned int i = 0; i < cells_table.size(); i++){
-		nr_lifo += cells_table[i]->get_policy();
 		if (cells_table[i])
 			hash_cell::destroy_array(cells_table[i], init_ncells);
 	}
-	std::cout << "CLOCK: " << cells_table.size() - nr_lifo << std::endl;
-	std::cout << "LIFO: " << nr_lifo << std::endl;
 	manager->unregister_cache(this);
 	memory_manager::destroy(manager);
-
+//#ifdef USE_APR
 	delete[] global_ghost;
+//#endif
 }
+
 
 bool associative_cache::shrink(int npages, char *pages[])
 {
@@ -1617,7 +1625,9 @@ associative_cache::associative_cache(long cache_size, long max_cache_size,
 	init_ncells = npages / min_cell_size;
 	// KH: APR_stats init
 
+#ifdef USE_APR
 	global_ghost = new ghost_t[get_file_size()/PAGE_SIZE+1]();
+#endif
 
 	// KH: create classes of hash_cell (count = npages/12)
 	hash_cell *cells = hash_cell::create_array(node_id, init_ncells);

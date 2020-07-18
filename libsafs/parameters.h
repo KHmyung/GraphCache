@@ -28,7 +28,7 @@
 #include <memory>
 
 #define USE_APR
-
+//#define USE_CLOCK
 #define MIN_BLOCK_SIZE 512
 
 namespace safs

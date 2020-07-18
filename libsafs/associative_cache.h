@@ -405,10 +405,11 @@ public:
 	bool contain(thread_safe_page *pg) const {
 		return buf.contain(pg);
 	}
-
+#ifdef USE_APR
 	bool get_policy(){
 		return policy.policy_lifo();
 	}
+#endif
 
 	/**
 	 * this is to rehash the pages in the current cell
