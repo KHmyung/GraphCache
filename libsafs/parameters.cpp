@@ -78,7 +78,7 @@ sys_parameters::sys_parameters()
 
 void sys_parameters::init(const std::map<std::string, std::string> &configs)
 {
-	str2int_map cache_map(cache_types, 
+	str2int_map cache_map(cache_types,
 			sizeof(cache_types) / sizeof(cache_types[0]));
 	str2int_map RAID_option_map(RAID_options,
 			sizeof(RAID_options) / sizeof(RAID_options[0]));
@@ -228,7 +228,7 @@ void sys_parameters::print()
 
 void sys_parameters::print_help()
 {
-	str2int_map cache_map(cache_types, 
+	str2int_map cache_map(cache_types,
 			sizeof(cache_types) / sizeof(cache_types[0]));
 	str2int_map RAID_option_map(RAID_options,
 			sizeof(RAID_options) / sizeof(RAID_options[0]));

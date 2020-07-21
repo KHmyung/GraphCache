@@ -43,8 +43,43 @@
 #include "comm_exception.h"
 #include "compute_stat.h"
 
+#define BILLION		(1000000001ULL)
+#define calclock(timevalue, total_time, total_count) do { \
+	unsigned long long timedelay, temp, temp_n; \
+	struct timespec *myclock = (struct timespec*)timevalue; \
+	if(myclock[1].tv_nsec >= myclock[0].tv_nsec){ \
+		temp = myclock[1].tv_sec - myclock[0].tv_sec; \
+		temp_n = myclock[1].tv_nsec - myclock[0].tv_nsec; \
+		timedelay = BILLION * temp + temp_n; \
+	} else { \
+		temp = myclock[1].tv_sec - myclock[0].tv_sec - 1; \
+		temp_n = BILLION + myclock[1].tv_nsec - myclock[0].tv_nsec; \
+		timedelay = BILLION * temp + temp_n; \
+	} \
+	__sync_fetch_and_add(total_time, timedelay); \
+	__sync_fetch_and_add(total_count, 1); \
+} while(0)
+
 namespace safs
 {
+
+struct TimeStats{
+	unsigned long long avg_total;
+	unsigned long long avg_read;
+	unsigned long long avg_write;
+	unsigned long long avg_sort;
+};
+
+struct TimeFormat{
+	unsigned long long total_t;
+	unsigned long long total_c;
+	unsigned long long *pol_clock_t;
+	unsigned long long *pol_clock_c;
+	unsigned long long *pol_lifo_t;
+	unsigned long long *pol_lifo_c;
+	unsigned long long *pol_compete_t;
+	unsigned long long *pol_compete_c;
+};
 
 const int CACHE_LINE = 128;
 /**
@@ -224,6 +259,7 @@ typedef struct {
 #define DECAY_FACTOR_DEFAULT	0.7
 
 // KH: APR ghost struct
+
 struct ghost_t {
 	bool present;
 	bool policy;
@@ -245,6 +281,7 @@ class APR_eviction_policy: public eviction_policy
 	page_md_t *clock_page;	// check pevicted by lifo
 
 	std::list<unsigned short> lifo_lt; // page의 cell index를 fetch 순서대로 저장
+	double *pow_val;
 
 	bool warm_up;
 	bool policy;
@@ -339,8 +376,8 @@ class hash_cell
 	clock_eviction_policy policy;
 #elif defined USE_GCLOCK
 	gclock_eviction_policy policy;
-#elif defined USE_MRU
-	MRU_eviction_policy policy;
+#elif defined USE_LIFO
+	LIFO_eviction_policy policy;
 // KH: APR policy declaration
 #elif defined USE_APR
 	APR_eviction_policy policy;

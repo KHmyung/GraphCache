@@ -232,9 +232,10 @@ public:
 		this->stime = time;
 	}
 	bool test_and_clear_page_ref() {
-		bool ret = get_ref() || referenced();
-//		bool ret = referenced();
-		set_referenced(false);
+//		bool ret = get_ref() || referenced();
+		bool ret = get_hits() != 0;
+		//		set_referenced(false);
+		reset_hits();
 		return ret;
 	}
 	bool test_and_clear_page_lref() {
