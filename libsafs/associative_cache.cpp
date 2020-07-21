@@ -1002,17 +1002,21 @@ thread_safe_page *APR_eviction_policy::lifo_evict_page(
 	unsigned int num_dirty = 0;
 	unsigned int num_referenced = 0;
 	bool avoid_dirty = true;
+
 	std::list<unsigned short>::iterator lifo_iter = lifo_lt.end();
 	lifo_iter--;
 
 	do {
 		unsigned int lifo_offset = *lifo_iter;
+		lifo_iter--;
 
+		if (lifo_offset == buf.get_num_pages())
+			continue;
+
+		thread_safe_page *pg = buf.get_page(lifo_offset);
 #ifdef APR_DEBUG_PRINT
 		std::cout << "LIFO Offset : " << lifo_offset << std::endl;
 #endif
-		thread_safe_page *pg = buf.get_page(lifo_offset);
-			lifo_iter--;
 
 		if (num_dirty + num_referenced  >= buf.get_num_pages()){
 			num_dirty = 0;
@@ -1032,7 +1036,7 @@ thread_safe_page *APR_eviction_policy::lifo_evict_page(
 			num_dirty++;
 			continue;
 		}
-
+/*
 		if (test_and_clear_lifo(pg)){
 			num_referenced++;
 #ifdef APR_DEBUG_PRINT
@@ -1040,7 +1044,7 @@ thread_safe_page *APR_eviction_policy::lifo_evict_page(
 #endif
 			continue;
 		}
-
+*/
 		if (policy == LIFO){
 			if(pg->evicted_by_clock()){
 				if(lifo_page[lifo_offset].stale){
@@ -1081,7 +1085,7 @@ thread_safe_page *APR_eviction_policy::actual_victim(
 			std::cout << "Same Victim" << std::endl;
 #endif
 			if (clock->is_evicted()){
-				if (clock->evicted_by_lifo()){
+				if (clock->evicted_by_lifo()){		/* v-evicted by lifo */
 					end_challenge(clock->get_stime(), LIFO);
 				}
 				else {
@@ -1177,7 +1181,7 @@ void APR_eviction_policy::renew_page(
 	lifo_lt.push_back(pg_idx);
 
 #ifdef APR_DEBUG_PRINT
-	std::cout << "(renew) Replace: " << lifo_lt.back() << std::endl;
+	std::cout << "(LIFO list) Replace: " << lifo_lt.back() << std::endl;
 #endif
 
 	reset_challenge(pg, pg_idx);
@@ -1205,6 +1209,11 @@ void APR_eviction_policy::start_challenge(
 	std::cout << "Challenge Start (by " << (policy?"LIFO : ":"CLOCK :")
 		<< (policy? lifo_head : clock_head-1) << ")" << std::endl;
 #endif
+
+	if (policy == LIFO) { // TODO Check this
+		lifo_lt.remove(lifo_head);
+		lifo_lt.push_front(lifo_head);
+	}
 	pg->set_evicted(policy);
 	pg->set_stime(time);
 }
@@ -1238,7 +1247,7 @@ bool APR_eviction_policy::test_and_clear_lifo(
 
 	if (ref) {
 		pg->set_cref();
-		if (pg->is_evicted()){
+		if (pg->is_evicted()){		/* v-evicted, but referenced in the meantime */
 //			assert(!is_ghost(pg->get_pg_offset()));
 			eval_challenge(pg);
 		}
@@ -1255,7 +1264,7 @@ void APR_eviction_policy::pevict_page(
 	std::cout << (policy ? lifo_head : clock_head-1) << " is p-evicted by "
 		<< (policy?"LIFO":"CLOCK") << std::endl;
 #endif
-	pg->set_evicted(policy);
+	pg->clear_evicted();
 
 	if (policy == CLOCK){
 		lifo_page[clock_head-1].stale = true;		// stale the lifo page
@@ -1265,7 +1274,7 @@ void APR_eviction_policy::pevict_page(
 		lifo_lt.remove(lifo_head);
 		lifo_lt.push_back(lifo_head);
 #ifdef APR_DEBUG_PRINT
-		std::cout << "(LIFO) Replace: " << lifo_lt.back() << std::endl;
+		std::cout << "(LIFO list) Replace: " << lifo_lt.back() << std::endl;
 #endif
 	}
 
