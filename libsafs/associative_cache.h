@@ -338,6 +338,31 @@ public:
 	void reset_challenge(thread_safe_page *pg, unsigned int pg_idx);
 };
 
+class LIFO_eviction_policy: public eviction_policy
+{
+	int num_entry;
+	unsigned int lifo_head;
+
+	std::list<unsigned short> lifo_lt;
+	bool warm_up;
+
+public:
+	LIFO_eviction_policy (){
+		init();
+	}
+	void init();
+	bool check_warm_up(){
+		return warm_up;
+	}
+	void finish_warm_up(){
+		warm_up = false;
+	}
+	int get_num_entry(){
+		return num_entry;
+	}
+	thread_safe_page *evict_page(page_cell<thread_safe_page> &buf);
+};
+
 class LFU_eviction_policy: public eviction_policy
 {
 public:

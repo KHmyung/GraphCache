@@ -34,7 +34,8 @@
 namespace safs
 {
 
-// KH
+// APR DEBUG CODE
+
 //#define APR_DEBUG_PRINT
 #define APR_DEBUG_TIME
 //#define APR_DEBUG_TIME_DETAIL
@@ -475,7 +476,11 @@ void hash_cell::print_cell()
 /* this function has to be called with lock held */
 thread_safe_page *hash_cell::get_empty_page()
 {
-	// KH: start eviction
+struct timespec local_time[2];
+#ifdef APR_DEBUG_TIME
+	clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
+#endif
+
 	thread_safe_page *ret = policy.evict_page(buf);
 	if (ret == NULL) {
 #ifdef DEBUG
@@ -485,6 +490,10 @@ thread_safe_page *hash_cell::get_empty_page()
 	}
 
 	/* we record the hit info of the page in the shadow cell. */
+#ifdef APR_DEBUG_TIME
+	clock_gettime(CLOCK_MONOTONIC, &local_time[1]);
+	calclock(local_time, &cache_time.total_t, &cache_time.total_c);
+#endif
 
 #ifdef USE_SHADOW_PAGE
 	if (ret->get_hits() > 0)
@@ -536,6 +545,71 @@ struct timespec local_time[2];
 }
 #endif
 
+void LIFO_eviction_policy::init()
+{
+	num_entry = 0;
+	lifo_head = 0;
+	warm_up = true;
+
+	for (int i = 0; i < params.get_SA_min_cell_size(); i++){
+		lifo_lt.push_back(i);
+	}
+}
+
+thread_safe_page *LIFO_eviction_policy::evict_page(
+		page_cell<thread_safe_page> &buf)
+{
+	thread_safe_page *ret = NULL;
+	unsigned int num_dirty = 0;
+	unsigned int num_referenced = 0;
+	bool avoid_dirty = true;
+
+	std::list<unsigned short>::iterator lifo_iter = lifo_lt.end();
+	lifo_iter--;
+
+	if (check_warm_up()) {
+		thread_safe_page *pg = buf.get_page(lifo_head % buf.get_num_pages());
+		lifo_head++;
+		num_entry++;
+		ret = pg;
+		if (buf.get_num_pages() <= get_num_entry()){
+			finish_warm_up();
+		}
+	}
+	else do {
+		unsigned int lifo_offset = *lifo_iter;
+		lifo_iter--;
+
+		if (lifo_offset == buf.get_num_pages())
+			continue;
+
+		thread_safe_page *pg = buf.get_page(lifo_offset);
+
+		if (num_referenced + num_dirty >= buf.get_num_pages()) {
+			num_referenced = 0;
+			num_dirty = 0;
+			avoid_dirty = false;
+		}
+		if (pg->get_ref()) {
+			num_referenced++;
+			if (num_referenced >= buf.get_num_pages())
+				return NULL;
+			continue;
+		}
+		if (avoid_dirty && pg->is_dirty()) {
+			num_dirty++;
+			continue;
+		}
+		ret = pg;
+		lifo_head = lifo_offset;
+		lifo_lt.remove(lifo_head);
+		lifo_lt.push_back(lifo_head);
+		//std::cout << "(evict) LIFO Offset : " << lifo_offset << std::endl;
+	} while (ret == NULL);
+	ret->set_data_ready(false);
+
+	return ret;
+}
 /*
  * the end of the vector points to the pages
  * that are most recently accessed.
@@ -919,6 +993,9 @@ void APR_eviction_policy::update_policy(void)
 		std::cout << "  -> POLICY: CLOCK" << std::endl;
 #endif
 	}
+
+	if (!warm_up)
+		std::cout << curr_score << std::endl;
 }
 
 thread_safe_page *APR_eviction_policy::clock_evict_page(
