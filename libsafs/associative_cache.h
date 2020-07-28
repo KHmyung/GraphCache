@@ -256,7 +256,7 @@ typedef struct {
 } APR_stats_t;
 
 // KH: APR_eviction_policy for hash cell
-#define DECAY_FACTOR_DEFAULT	0.7
+#define DECAY_FACTOR_DEFAULT	1
 
 // KH: APR ghost struct
 

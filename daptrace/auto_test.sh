@@ -1,77 +1,135 @@
 #!/bin/bash
 
+testname=apr_time
 base=/home/kh/codes/graph/FlashX
 conf=$base/flash-graph/conf/run_test.txt
-algo=TopK
+algo=pagerank2
 graph=twitter_graph
+parm=
 
 set -e
 
-#
+sed -i "28s/.*/threads=1/g" $conf
+
 algo=wcc
-for x in {2.6G,5.2G,7.8G,10.4G,13G,15.6G,18.2G,20.8G,23.4G,26G}; do
-#for x in {4,8,16,32,64}; do
+mkdir -p $testname/$algo
+for x in {128M,2.6G,5.2G,7.8G,10.4G,13G,15.6G,18.2G,20.8G,23.4G,26G}; do
 
 	sed -i "10s/.*/cache_size=$x/g" $conf
-#sed -i "28s/.*/threads=$x/g" $conf
+
+	sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
+	sleep 1
+
+	sudo ./test.sh $algo $graph > $testname/$algo/$algo\_$x\_th1.log
+done
+
+algo=wcc
+mkdir -p $testname/$algo
+sed -i "28s/.*/threads=16/g" $conf
+
+for x in {128M,2.6G,5.2G,7.8G,10.4G,13G,15.6G,18.2G,20.8G,23.4G,26G}; do
+
+	sed -i "10s/.*/cache_size=$x/g" $conf
 
 	sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
 	sleep 1
 	
-	sudo ./test.sh $algo $graph > $algo/$algo\_$x.log
+	sudo ./test.sh $algo $graph > $testname/$algo/$algo\_$x\_th16.log
 done
 
-cd $algo
-sed -i '/Iter/d' *.log
-cd ..
+sed -i "28s/.*/threads=1/g" $conf
 
 algo=scc
-for x in {2.6G,5.2G,7.8G,10.4G,13G,15.6G,18.2G,20.8G,23.4G,26G}; do
-#for x in {4,8,16,32,64}; do
+mkdir -p $testname/$algo
+for x in {128M,2.6G,5.2G,7.8G,10.4G,13G,15.6G,18.2G,20.8G,23.4G,26G}; do
 
 	sed -i "10s/.*/cache_size=$x/g" $conf
-#sed -i "28s/.*/threads=$x/g" $conf
 
 	sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
 	sleep 1
 	
-	sudo ./test.sh $algo $graph > $algo/$algo\_$x.log
+	sudo ./test.sh $algo $graph > $testname/$algo/$algo\_$x\_th1.log
 done
 
-cd $algo
-sed -i '/Iter/d' *.log
-cd ..
+algo=scc
+mkdir -p $testname/$algo
+sed -i "28s/.*/threads=16/g" $conf
+
+for x in {128M,2.6G,5.2G,7.8G,10.4G,13G,15.6G,18.2G,20.8G,23.4G,26G}; do
+
+	sed -i "10s/.*/cache_size=$x/g" $conf
+
+	sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
+	sleep 1
+	
+	sudo ./test.sh $algo $graph > $testname/$algo/$algo\_$x\_th16.log
+done
+
+sed -i "28s/.*/threads=1/g" $conf
 
 algo=diameter
-for x in {2.6G,5.2G,7.8G,10.4G,13G,15.6G,18.2G,20.8G,23.4G,26G}; do
-#for x in {4,8,16,32,64}; do
+mkdir -p $testname/$algo
+for x in {128M,2.6G,5.2G,7.8G,10.4G,13G,15.6G,18.2G,20.8G,23.4G,26G}; do
 
 	sed -i "10s/.*/cache_size=$x/g" $conf
-#sed -i "28s/.*/threads=$x/g" $conf
 
 	sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
 	sleep 1
 	
-	sudo ./test.sh $algo $graph > $algo/$algo\_$x.log
+	sudo ./test.sh $algo $graph > $testname/$algo/$algo\_$x\_th1.log
 done
 
-cd $algo
-sed -i '/Iter/d' *.log
-cd ..
+algo=diameter
+mkdir -p $testname/$algo
+sed -i "28s/.*/threads=16/g" $conf
+
+for x in {128M,2.6G,5.2G,7.8G,10.4G,13G,15.6G,18.2G,20.8G,23.4G,26G}; do
+
+	sed -i "10s/.*/cache_size=$x/g" $conf
+
+	sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
+	sleep 1
+	
+	sudo ./test.sh $algo $graph > $testname/$algo/$algo\_$x\_th16.log
+done
+
+sed -i "28s/.*/threads=1/g" $conf
 
 algo=pagerank2
-for x in {1.25G,2.5G,3.75G,5G,6.25G,7.5G,8.75G,10G,11.25G,12.5G}; do
-#for x in {4,8,16,32,64}; do
+mkdir -p $testname/$algo
+for x in {128M,1.3G,2.6G,3.9G,5.2G,6.5G,7.8G,9.1G,10.4G,11.7G,13G}; do
 
 	sed -i "10s/.*/cache_size=$x/g" $conf
-#sed -i "28s/.*/threads=$x/g" $conf
 
 	sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
 	sleep 1
 	
-	sudo ./test.sh $algo $graph > $algo/$algo\_$x.log
+	sudo ./test.sh $algo $graph '-i 5' > $testname/$algo/$algo\_$x\_th1.log
 done
 
-cd $algo
-sed -i '/Iter/d' *.log
-cd ..
+algo=pagerank2
+mkdir -p $testname/$algo
+sed -i "28s/.*/threads=16/g" $conf
+
+for x in {128M,1.3G,2.6G,3.9G,5.2G,6.5G,7.8G,9.1G,10.4G,11.7G,13G}; do
+
+	sed -i "10s/.*/cache_size=$x/g" $conf
+
+	sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
+	sleep 1
+	
+	sudo ./test.sh $algo $graph '-i 5' > $testname/$algo/$algo\_$x\_th16.log
+done
+
+algo=cycle_triangle
+mkdir -p $testname/$algo
+
+for x in {1.3G,2.6G,3.9G,5.2G,6.5G,7.8G,9.1G,10.4G,11.7G,13G}; do
+
+	sed -i "10s/.*/cache_size=$x/g" $conf
+
+	sudo sh -c "echo 3 > /proc/sys/vm/drop_caches"
+	sleep 1
+	
+	sudo ./test.sh $algo $graph -f > $testname/$algo/$algo\_$x\_th16.log
+done

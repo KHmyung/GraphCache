@@ -994,8 +994,8 @@ void APR_eviction_policy::update_policy(void)
 #endif
 	}
 
-	if (!warm_up)
-		std::cout << curr_score << std::endl;
+//	if (!warm_up)
+//		std::cout << curr_score << std::endl;
 }
 
 thread_safe_page *APR_eviction_policy::clock_evict_page(
@@ -1196,10 +1196,10 @@ thread_safe_page *APR_eviction_policy::actual_victim(
 				ret = clock;
 			}
 			if (lifo) {
-				if (lifo->is_evicted()){
-					assert(lifo->evicted_by_clock());
+				if (lifo->is_evicted() || lifo_page[lifo_head].stale){
+					//assert(lifo->evicted_by_clock());
 					end_challenge(lifo->get_stime(), CLOCK);
-					if (lifo_page[lifo_head].stale = true){		// pevicted by clock
+					if (lifo_page[lifo_head].stale){		// pevicted by clock
 						renew_page(lifo, LIFO);
 					}
 					else {
@@ -1212,21 +1212,6 @@ thread_safe_page *APR_eviction_policy::actual_victim(
 			}
 		}
 		else {
-			if (clock) {
-				if (clock->is_evicted()){
-					assert(clock->evicted_by_lifo());
-					end_challenge(clock->get_stime(), LIFO);
-					if (clock_page[clock_head-1].stale = true){
-						renew_page(clock, CLOCK);
-					}
-					else {
-						reset_challenge(clock, clock_head-1);
-					}
-				}
-				else {
-					start_challenge(clock, CLOCK);
-				}
-			}
 			if (lifo) {
 				if (lifo->is_evicted()){
 //					assert(!is_ghost(lifo->get_pg_offset()));
@@ -1242,6 +1227,21 @@ thread_safe_page *APR_eviction_policy::actual_victim(
 					pevict_page(lifo);
 				}
 				ret = lifo;
+			}
+			if (clock) {
+				if (clock->is_evicted() || clock_page[clock_head-1].stale){
+					//assert(clock->evicted_by_lifo());
+					end_challenge(clock->get_stime(), LIFO);
+					if (clock_page[clock_head-1].stale){
+						renew_page(clock, CLOCK);
+					}
+					else {
+						reset_challenge(clock, clock_head-1);
+					}
+				}
+				else {
+					start_challenge(clock, CLOCK);
+				}
 			}
 		}
 	}
@@ -1408,15 +1408,15 @@ bool APR_eviction_policy::eval_challenge(thread_safe_page *pg)
 
 void APR_eviction_policy::end_challenge(unsigned long stime, bool winner)
 {
-	long double reward;
-
+	long double reward = 1;
+/*
 	if (last_stime < stime){
 		curr_score *= spow(decay, stime - last_stime);
 		last_stime = stime;
 	}
 
 	reward = spow(decay, last_stime - stime);
-
+*/
 	if(winner == LIFO) {
 #ifdef APR_DEBUG_PRINT
 		std::cout << "LIFO Win!" << std::endl;
