@@ -43,6 +43,9 @@
 #include "comm_exception.h"
 #include "compute_stat.h"
 
+#define APR_SAMPLING
+#define APR_SAMPLE_SIZE 100
+#define APR_SCORE_LIMIT APR_SAMPLE_SIZE/2
 #define BILLION		(1000000001ULL)
 #define calclock(timevalue, total_time, total_count) do { \
 	unsigned long long timedelay, temp, temp_n; \
@@ -263,7 +266,7 @@ typedef struct {
 struct ghost_t {
 	bool present;
 	bool policy;
-	unsigned long stime;
+	unsigned long stime;		// unused for now
 };
 
 struct page_md_t {
@@ -274,26 +277,28 @@ class associative_cache;
 
 class APR_eviction_policy: public eviction_policy
 {
+	bool leader;
+	bool sample;
+	bool policy;
+	bool warm_up;
+
+	int local_score;
 	unsigned int clock_head;
 	unsigned int lifo_head;
+
+	std::list<unsigned short> lifo_lt;
 
 	page_md_t *lifo_page;	// check pevicted by clock
 	page_md_t *clock_page;	// check pevicted by lifo
 
-	std::list<unsigned short> lifo_lt; // page의 cell index를 fetch 순서대로 저장
-	double *pow_val;
-
-	bool warm_up;
-	bool policy;
-	unsigned long time;
-	unsigned long last_stime;
-	long double decay;
+	int hash;
+	double *pow_val;				// unused for now
+	unsigned long time;				// unused for now
+	unsigned long last_stime;		// unused for now
+	long double decay;				// unused for now
 	long double curr_score;
 
 	APR_stats_t APR_stats;
-
-//	ghost_t *global_ghost;
-//	ghost_t *ghost;
 
 public:
 	APR_eviction_policy() {
@@ -306,10 +311,32 @@ public:
 	}
 
 	thread_safe_page *evict_page(page_cell<thread_safe_page> &buf);
+	thread_safe_page *evict_page(page_cell<thread_safe_page> &buf, off_t offset);
 	thread_safe_page *clock_evict_page(page_cell<thread_safe_page> &buf);
 	thread_safe_page *lifo_evict_page(page_cell<thread_safe_page> &buf);
 	thread_safe_page *actual_victim(thread_safe_page *vic1,
 									thread_safe_page *vic2);
+	thread_safe_page *sampled_clock_evict(page_cell<thread_safe_page> &buf);
+	thread_safe_page *sampled_lifo_evict(page_cell<thread_safe_page> &buf);
+	thread_safe_page *sampled_actual_victim(thread_safe_page *vic1,
+									thread_safe_page *vic2);
+
+	thread_safe_page *simple_clock_evict(page_cell<thread_safe_page> &buf);
+	thread_safe_page *simple_lifo_evict(page_cell<thread_safe_page> &buf);
+
+	void update_score(int score);
+
+	void update_hash(int x){
+		this->hash = x;
+	}
+
+	void update_leader(){
+		leader = true;
+	}
+
+	void update_sample(){
+		sample  = true;
+	}
 
 	bool policy_lifo(){
 		return this->policy;
@@ -319,7 +346,6 @@ public:
 	}
 
 	void update_policy(void);
-	void show_stats(void);
 
 	bool is_ghost(off_t offset);
 	double spow(double base, unsigned long power);
@@ -427,12 +453,18 @@ class hash_cell
 	hash_cell() {
 		init();
 	}
+	hash_cell(bool sample, bool leader) {
+		init(sample, leader);
+	}
 
 	~hash_cell() {
 	}
 
 public:
 	static hash_cell *create_array(int node_id, int num) {
+		int nsamples = APR_SAMPLE_SIZE;
+		bool sample;
+		bool leader = true;
 		assert(node_id >= 0);
 #ifdef USE_NUMA
 		void *addr = numa_alloc_onnode(sizeof(hash_cell) * num, node_id);
@@ -441,8 +473,17 @@ public:
 #endif
 		hash_cell *cells = (hash_cell *) addr;
 		// KH: create array of hash_cell
+#ifdef APR_SAMPLING
+		for (int i = 0; i < num; i++){
+
+			new(&cells[i]) hash_cell(sample = (nsamples > 0), leader);
+			nsamples--;
+			leader = false;
+		}
+#else
 		for (int i = 0; i < num; i++)
 			new(&cells[i]) hash_cell();
+#endif
 		return cells;
 	}
 	static void destroy_array(hash_cell *cells, int num) {
@@ -455,6 +496,7 @@ public:
 #endif
 	}
 
+	void init(bool sample, bool leader);
 	void init(associative_cache *cache, long hash, bool get_pages);
 
 	void add_pages(char *pages[], int num);
