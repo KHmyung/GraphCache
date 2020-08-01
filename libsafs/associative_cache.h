@@ -44,8 +44,8 @@
 #include "compute_stat.h"
 
 #define APR_SAMPLING
-#define APR_SAMPLE_SIZE 100
-#define APR_SCORE_LIMIT APR_SAMPLE_SIZE/2
+#define APR_SAMPLE_SIZE 1000
+#define APR_SCORE_LIMIT 50 //APR_SAMPLE_SIZE
 #define BILLION		(1000000001ULL)
 #define calclock(timevalue, total_time, total_count) do { \
 	unsigned long long timedelay, temp, temp_n; \
@@ -282,7 +282,7 @@ class APR_eviction_policy: public eviction_policy
 	bool policy;
 	bool warm_up;
 
-	int local_score;
+//	int local_score;
 	unsigned int clock_head;
 	unsigned int lifo_head;
 
@@ -291,12 +291,13 @@ class APR_eviction_policy: public eviction_policy
 	page_md_t *lifo_page;	// check pevicted by clock
 	page_md_t *clock_page;	// check pevicted by lifo
 
+	int curr_score;
+
 	int hash;
 	double *pow_val;				// unused for now
 	unsigned long time;				// unused for now
 	unsigned long last_stime;		// unused for now
 	long double decay;				// unused for now
-	long double curr_score;
 
 	APR_stats_t APR_stats;
 
@@ -360,7 +361,8 @@ public:
 	void start_challenge(thread_safe_page *pg, bool policy);
 	bool eval_challenge(off_t offset);
 	bool eval_challenge(thread_safe_page *pg);
-	void end_challenge(unsigned long stime, bool winner);
+//	void end_challenge(unsigned long stime, bool winner);
+	void end_challenge(bool winner, int reward);
 	void reset_challenge(thread_safe_page *pg, unsigned int pg_idx);
 };
 
@@ -462,7 +464,9 @@ class hash_cell
 
 public:
 	static hash_cell *create_array(int node_id, int num) {
-		int nsamples = APR_SAMPLE_SIZE;
+		int nsamples = num/APR_SAMPLE_SIZE;
+		if (nsamples < 10)
+			nsamples = 10;
 		bool sample;
 		bool leader = true;
 		assert(node_id >= 0);
