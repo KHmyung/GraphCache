@@ -44,8 +44,7 @@
 #include "compute_stat.h"
 
 #define APR_SAMPLING
-#define APR_SAMPLE_SIZE 1000
-#define APR_SCORE_LIMIT 50 //APR_SAMPLE_SIZE
+#define APR_SAMPLE_SIZE 100
 #define BILLION		(1000000001ULL)
 #define calclock(timevalue, total_time, total_count) do { \
 	unsigned long long timedelay, temp, temp_n; \
@@ -253,19 +252,26 @@ public:
 
 // KH: APR global statistics
 typedef struct {
-	std::atomic<unsigned long> clock_win;
-	std::atomic<unsigned long> lifo_win;
-	std::atomic<unsigned long> draw;
+	unsigned long clock_win;
+	unsigned long lifo_win;
+	unsigned long draw;
+
+	unsigned long cache_access;
+	unsigned long hit_count;
+	unsigned long miss_count;
+	unsigned long cold_miss;
+
 } APR_stats_t;
 
 // KH: APR_eviction_policy for hash cell
-#define DECAY_FACTOR_DEFAULT	1
+#define DECAY_FACTOR_DEFAULT	0.7
 
 // KH: APR ghost struct
 
 struct ghost_t {
 	bool present;
 	bool policy;
+	int pg_idx;
 	unsigned long stime;		// unused for now
 };
 
@@ -277,29 +283,27 @@ class associative_cache;
 
 class APR_eviction_policy: public eviction_policy
 {
-	bool leader;
+	bool leader;			// unused for now
 	bool sample;
 	bool policy;
 	bool warm_up;
 
-//	int local_score;
 	unsigned int clock_head;
 	unsigned int lifo_head;
 
-	std::list<unsigned short> lifo_lt;
+	std::list<int> lifo_lt;
 
 	page_md_t *lifo_page;	// check pevicted by clock
 	page_md_t *clock_page;	// check pevicted by lifo
 
-	int curr_score;
+	double curr_score;
+	double local_score;
 
 	int hash;
-	double *pow_val;				// unused for now
-	unsigned long time;				// unused for now
-	unsigned long last_stime;		// unused for now
-	long double decay;				// unused for now
-
-	APR_stats_t APR_stats;
+	double *pow_val;
+	unsigned long time;
+	unsigned long last_stime;
+	double decay;
 
 public:
 	APR_eviction_policy() {
@@ -317,25 +321,25 @@ public:
 	thread_safe_page *lifo_evict_page(page_cell<thread_safe_page> &buf);
 	thread_safe_page *actual_victim(thread_safe_page *vic1,
 									thread_safe_page *vic2);
-	thread_safe_page *sampled_clock_evict(page_cell<thread_safe_page> &buf);
-	thread_safe_page *sampled_lifo_evict(page_cell<thread_safe_page> &buf);
-	thread_safe_page *sampled_actual_victim(thread_safe_page *vic1,
+	thread_safe_page *voter_clock_evict(page_cell<thread_safe_page> &buf);
+	thread_safe_page *voter_lifo_evict(page_cell<thread_safe_page> &buf);
+	thread_safe_page *voter_actual_victim(thread_safe_page *vic1,
 									thread_safe_page *vic2);
 
-	thread_safe_page *simple_clock_evict(page_cell<thread_safe_page> &buf);
-	thread_safe_page *simple_lifo_evict(page_cell<thread_safe_page> &buf);
+	thread_safe_page *follower_clock_evict(page_cell<thread_safe_page> &buf);
+	thread_safe_page *follower_lifo_evict(page_cell<thread_safe_page> &buf);
 
-	void update_score(int score);
+	void update_score();
 
 	void update_hash(int x){
 		this->hash = x;
 	}
 
-	void update_leader(){
+	void notify_leader(){
 		leader = true;
 	}
 
-	void update_sample(){
+	void notify_sample(){
 		sample  = true;
 	}
 
@@ -350,28 +354,30 @@ public:
 
 	bool is_ghost(off_t offset);
 	double spow(double base, unsigned long power);
+	void update_lifo_list(int pg_idx);
 
 	bool test_and_clear_clock(thread_safe_page *pg);
 	bool test_and_clear_lifo(thread_safe_page *pg);
 
-	void renew_page(thread_safe_page *pg, bool pol);
 	void pevict_page(thread_safe_page *pg);
-	void reg_ghost(thread_safe_page *pg);
+	void reg_ghost(thread_safe_page *pg, int pg_idx);
 
 	void start_challenge(thread_safe_page *pg, bool policy);
 	bool eval_challenge(off_t offset);
-	bool eval_challenge(thread_safe_page *pg);
-//	void end_challenge(unsigned long stime, bool winner);
-	void end_challenge(bool winner, int reward);
-	void reset_challenge(thread_safe_page *pg, unsigned int pg_idx);
+	bool eval_challenge(thread_safe_page *pg, bool pol);
+	void end_challenge(unsigned long stime, bool winner);
+	void end_challenge(bool winner);
+
+	void remove_page(thread_safe_page *pg, bool pol);
+	void refresh_chal(thread_safe_page *pg, int pg_idx);
 };
 
 class LIFO_eviction_policy: public eviction_policy
 {
 	int num_entry;
-	unsigned int lifo_head;
+	int lifo_head;
 
-	std::list<unsigned short> lifo_lt;
+	std::list<int> lifo_lt;
 	bool warm_up;
 
 public:
@@ -414,6 +420,9 @@ class hash_cell
 	// It's actually a virtual index of the cell on the hash table.
 	int hash;
 	atomic_flags<int> flags;
+
+	/* APR statistics */
+	APR_stats_t APR_stats;
 
 
 	spin_lock _lock;
@@ -465,8 +474,9 @@ class hash_cell
 public:
 	static hash_cell *create_array(int node_id, int num) {
 		int nsamples = num/APR_SAMPLE_SIZE;
-		if (nsamples < 10)
-			nsamples = 10;
+		if (nsamples < 1)
+			nsamples = 1;
+		//int nsamples = APR_SAMPLE_SIZE;
 		bool sample;
 		bool leader = true;
 		assert(node_id >= 0);
@@ -491,8 +501,9 @@ public:
 		return cells;
 	}
 	static void destroy_array(hash_cell *cells, int num) {
-		for (int i = 0; i < num; i++)
+		for (int i = 0; i < num; i++){
 			cells[i].~hash_cell();
+		}
 #ifdef USE_NUMA
 		numa_free(cells, sizeof(*cells) * num);
 #else
@@ -514,11 +525,6 @@ public:
 	bool contain(thread_safe_page *pg) const {
 		return buf.contain(pg);
 	}
-#ifdef USE_APR
-	bool get_policy(){
-		return policy.policy_lifo();
-	}
-#endif
 
 	/**
 	 * this is to rehash the pages in the current cell
@@ -588,6 +594,19 @@ public:
 		return false;
 	}
 
+	unsigned long APR_cache_access() const {
+		return APR_stats.cache_access;
+	}
+	unsigned long APR_miss_count() const {
+		return APR_stats.miss_count;
+	}
+	unsigned long APR_hit_count() const {
+		return APR_stats.hit_count;
+	}
+	unsigned long APR_cold_miss() const {
+		return APR_stats.cold_miss;
+	}
+
 	long get_num_accesses() const {
 		return num_accesses;
 	}
@@ -635,8 +654,7 @@ class associative_cache: public page_cache
 	int level;
 	int split;
 
-	// APR global_ghost
-	// ghost_t *global_ghost;
+	APR_stats_t APR_global_stats;
 
 	std::unique_ptr<dirty_page_flusher> _flusher;
 	pthread_mutex_t init_mutex;
