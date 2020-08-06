@@ -364,7 +364,7 @@ public:
 
 	void start_challenge(thread_safe_page *pg, bool policy);
 	bool eval_challenge(off_t offset);
-	bool eval_challenge(thread_safe_page *pg, bool pol);
+	bool eval_challenge(thread_safe_page *pg);
 	void end_challenge(unsigned long stime, bool winner);
 	void end_challenge(bool winner);
 
@@ -473,10 +473,13 @@ class hash_cell
 
 public:
 	static hash_cell *create_array(int node_id, int num) {
+		/*
 		int nsamples = num/APR_SAMPLE_SIZE;
 		if (nsamples < 1)
 			nsamples = 1;
-		//int nsamples = APR_SAMPLE_SIZE;
+			*/
+		std::cout << "create_array: " << num << std::endl;
+		int nsamples = APR_SAMPLE_SIZE;
 		bool sample;
 		bool leader = true;
 		assert(node_id >= 0);
