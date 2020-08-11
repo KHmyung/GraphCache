@@ -176,13 +176,14 @@ int page_cell<T>::get_num_used_pages() const
 	return num;
 }
 
-void hash_cell::init(bool sample, bool leader){
-
+void hash_cell::init(bool sample){
+/*
 	if (leader) {
 		global_policy = CLOCK;
 		global_score = 0;
 		policy.notify_leader();
 	}
+	*/
 	if (sample)
 		policy.notify_sample();
 }
@@ -876,7 +877,7 @@ thread_safe_page *clock_eviction_policy::evict_page(
 
 void APR_eviction_policy::init()
 {
-	leader = false;
+	//leader = false;
 	sample = false;
 	clock_head = 0;
 	lifo_head = 0;
@@ -1285,7 +1286,6 @@ void APR_eviction_policy::update_score()
 		   	global_policy = CLOCK;
 		//std::cout << global_policy << std::endl;
 
-		local_score += curr_score;
 #ifdef APR_DEBUG_PRINT
 		std::cout << "Local Score : " << local_score << std::endl;
 		std::cout << "Global Score : " << old;
@@ -1294,7 +1294,7 @@ void APR_eviction_policy::update_score()
 	}
 }
 
-#ifdef APR_SAMPLING
+//#ifdef APR_SAMPLING
 thread_safe_page *APR_eviction_policy::evict_page(
 		page_cell<thread_safe_page> &buf, off_t offset)
 {
@@ -1302,8 +1302,10 @@ thread_safe_page *APR_eviction_policy::evict_page(
 	thread_safe_page *ret = NULL;
 	curr_score = 0;
 
+#ifdef APR_SAMPLING
 #ifdef APR_DEBUG_PRINT
 	std::cout << "Global policy is " << (global_policy ? "LIFO" : "CLOCK") << std::endl;
+#endif
 #endif
 
 	if (this->sample) {
@@ -1312,7 +1314,6 @@ thread_safe_page *APR_eviction_policy::evict_page(
 		if(local_score > 0)
 			policy = LIFO;
 		else policy = CLOCK;
-		//policy = global_policy.load();
 
 #ifdef APR_DEBUG_PRINT
 		std::cout << "Local policy is " << (policy ? "LIFO" : "CLOCK") << std::endl;
@@ -1355,6 +1356,8 @@ thread_safe_page *APR_eviction_policy::evict_page(
 #endif
 		}
 
+		local_score += curr_score;
+#ifdef APR_SAMPLING
 		update_score();
 		time_check++;
 		if (!(time_check % APR_SAMPLE_SIZE)) {
@@ -1367,6 +1370,7 @@ thread_safe_page *APR_eviction_policy::evict_page(
 			std::cout << " -> " << global_score.load() << std::endl;
 #endif
 		}
+#endif
 		ret = (warm_up ? clock_victim : actual_victim);
 	}
 	else {
@@ -1379,7 +1383,7 @@ thread_safe_page *APR_eviction_policy::evict_page(
 
 	return ret;
 }
-
+/*
 #else
 thread_safe_page *APR_eviction_policy::evict_page(
 		page_cell<thread_safe_page> &buf, off_t offset)
@@ -1442,7 +1446,7 @@ thread_safe_page *APR_eviction_policy::evict_page(
 	return (warm_up ? clock_victim : ret);
 }
 #endif
-
+*/
 thread_safe_page *APR_eviction_policy::evict_page(
 		page_cell<thread_safe_page> &buf)
 {

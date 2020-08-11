@@ -43,7 +43,7 @@
 #include "comm_exception.h"
 #include "compute_stat.h"
 
-#define APR_SAMPLING
+//#define APR_SAMPLING
 #define APR_SAMPLE_SIZE 100
 #define BILLION		(1000000001ULL)
 #define calclock(timevalue, total_time, total_count) do { \
@@ -283,7 +283,7 @@ class associative_cache;
 
 class APR_eviction_policy: public eviction_policy
 {
-	bool leader;			// unused for now
+//	bool leader;			// unused for now
 	bool sample;
 	bool policy;
 	bool warm_up;
@@ -334,11 +334,11 @@ public:
 	void update_hash(int x){
 		this->hash = x;
 	}
-
+/*
 	void notify_leader(){
 		leader = true;
 	}
-
+*/
 	void notify_sample(){
 		sample  = true;
 	}
@@ -464,8 +464,8 @@ class hash_cell
 	hash_cell() {
 		init();
 	}
-	hash_cell(bool sample, bool leader) {
-		init(sample, leader);
+	hash_cell(bool sample) {
+		init(sample);
 	}
 
 	~hash_cell() {
@@ -477,11 +477,9 @@ public:
 		int nsamples = num/APR_SAMPLE_SIZE;
 		if (nsamples < 1)
 			nsamples = 1;
-			*/
-		std::cout << "create_array: " << num << std::endl;
+		*/
 		int nsamples = APR_SAMPLE_SIZE;
 		bool sample;
-		bool leader = true;
 		assert(node_id >= 0);
 #ifdef USE_NUMA
 		void *addr = numa_alloc_onnode(sizeof(hash_cell) * num, node_id);
@@ -493,13 +491,12 @@ public:
 #ifdef APR_SAMPLING
 		for (int i = 0; i < num; i++){
 
-			new(&cells[i]) hash_cell(sample = (nsamples > 0), leader);
+			new(&cells[i]) hash_cell(sample = (nsamples > 0));
 			nsamples--;
-			leader = false;
 		}
 #else
 		for (int i = 0; i < num; i++)
-			new(&cells[i]) hash_cell();
+			new(&cells[i]) hash_cell(true);
 #endif
 		return cells;
 	}
@@ -514,7 +511,7 @@ public:
 #endif
 	}
 
-	void init(bool sample, bool leader);
+	void init(bool sample);
 	void init(associative_cache *cache, long hash, bool get_pages);
 
 	void add_pages(char *pages[], int num);
