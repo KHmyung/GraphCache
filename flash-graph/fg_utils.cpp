@@ -506,6 +506,7 @@ std::pair<vector_vector::ptr, size_t> create_1d_matrix(edge_list::ptr el)
 	vector_vector::ptr ret;
 	size_t max_col_idx = 0;
 	if (!el->has_attr()) {
+		std::cout << "no edge attribute" << std::endl;
 		std::unique_ptr<adj_apply_operate> op(new adj_apply_operate());
 		ret = sorted_el->groupby_source(*op);
 		max_col_idx = op->get_max_col_idx();
@@ -514,12 +515,14 @@ std::pair<vector_vector::ptr, size_t> create_1d_matrix(edge_list::ptr el)
 	// the size of the edge data size. Actually, we don't interpret data type
 	// here. Only the data size matters.
 	else if (el->get_attr_size() == 4) {
+		std::cout << "edge 4 bytes " << std::endl;
 		std::unique_ptr<attr_adj_apply_operate<unit4> > op(
 				new attr_adj_apply_operate<unit4>());
 		ret = sorted_el->groupby_source(*op);
 		max_col_idx = op->get_max_col_idx();
 	}
 	else if (el->get_attr_size() == 8) {
+		std::cout << "edge 8 bytes " << std::endl;
 		std::unique_ptr<attr_adj_apply_operate<unit8> > op(
 				new attr_adj_apply_operate<unit8>());
 		ret = sorted_el->groupby_source(*op);
@@ -546,7 +549,6 @@ static std::pair<fg::vertex_index::ptr, detail::vec_store::ptr> create_fg_direct
 			fg::graph_header::get_header_size(),
 			get_scalar_type<char>(), -1, el->is_in_mem());
 	size_t edge_data_size = el->get_attr_size();
-
 	/*
 	 * Construct the in-edge adjacency lists.
 	 * All edges share the same destination vertex should be stored together.

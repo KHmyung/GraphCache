@@ -21,6 +21,9 @@
  */
 
 #include <atomic>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <fcntl.h>
 
 #include "vertex.h"
 #include "vertex_index.h"
@@ -56,7 +59,7 @@ public:
 	 * state.
 	 *
 	 * <I>Note that users never need to explictly call this ctor.</I>
-	 *         
+	 *
 	 */
 	compute_vertex(vertex_id_t id) {
 	}
@@ -78,9 +81,9 @@ public:
      * \param num The number of vertex IDs you are requesting.
 	 */
 	void request_vertex_headers(vertex_id_t ids[], size_t num);
-    
+
     /**
-     * \brief Allows a vertex to perform a task at the end of every iteration. 
+     * \brief Allows a vertex to perform a task at the end of every iteration.
      * \param prog The vertex program associated with running the graph algorithm.
      */
 	void notify_iteration_end(vertex_program & prog) {
@@ -90,7 +93,7 @@ public:
 	  * \brief This method is invoked by calling the `request_vertex_headers`
 	  *		method and is where one would access the vertex in/out edges.
 	  *	\param prog The vertex program.
-	  *	\param header The vertex header object. 
+	  *	\param header The vertex header object.
 	  */
 	void run_on_vertex_header(vertex_program &prog,
 			const vertex_header &header) {
@@ -257,7 +260,7 @@ public:
 class vertex_filter
 {
 public:
-    
+
     /**
      * \brief The method defines which vertices are active in the first iteration.
      *           If this method returns `true` the vertex will be activated, whereas
@@ -276,7 +279,7 @@ class vertex_initializer
 {
 public:
 	typedef std::shared_ptr<vertex_initializer> ptr; /** Type provides access to the object */
-    
+
     /**
      * \brief Initialization method to initialize the given vertex.
      */
@@ -296,13 +299,13 @@ class vertex_query
 {
 public:
 	typedef std::shared_ptr<vertex_query> ptr; /** Type provides access to the object */
-    
+
     /**
      * \brief This method is executed on vertices in parallel and contains any user defined
      *         code.
      */
 	virtual void run(graph_engine &, compute_vertex &v) = 0;
-    
+
     /**
      *  \brief All vertex results may be merged (not specially combined but any custom operation).
      *          <br>. This for instance can be used to aggregate (add, subtract, max etc.)
@@ -311,7 +314,7 @@ public:
      * \param q A pointer to the vertex query.
      */
 	virtual void merge(graph_engine &graph, vertex_query::ptr q) = 0;
-    
+
     /**
      * \brief Implements a copy constructor. The graph engine uses this method
 	 *        to create an instance of this query for each thread.
@@ -324,6 +327,11 @@ class worker_thread;
 class in_mem_graph;
 class FG_graph;
 
+
+struct page_info_t{
+    unsigned int likelihood;
+    bool boundary;
+};
 /**
  * \brief This is the class that coordinates how & where algorithms are run.
  *          It can be seen as the central organ of FlashGraph.
@@ -339,6 +347,7 @@ class graph_engine
 
 	graph_index::ptr vertices;
 	in_mem_query_vertex_index::ptr vindex;
+	in_mem_cdirected_vertex_index::ptr my_index;
 	std::shared_ptr<in_mem_graph> graph_data;
 	vertex_scheduler::ptr scheduler;
 
@@ -347,6 +356,10 @@ class graph_engine
 	atomic_number<size_t> num_remaining_vertices_in_level;
 	atomic_integer level;
 	volatile bool is_complete;
+
+
+    /* (kh) page info */
+    page_info_t *page_info;
 
 	// These are used for switching queues.
 	pthread_mutex_t lock;
@@ -373,15 +386,26 @@ public:
 
 	static void init_flash_graph(config_map::ptr configs);
 	static void destroy_flash_graph();
-    
+
     /**
      * \brief Constructor usable by inheriting classes.
-     * \param graph 
+     * \param graph
      * \param index The path to the graph index file on disk.
      */
 	static graph_engine::ptr create(FG_graph &graph, graph_index::ptr index) {
 		return graph_engine::ptr(new graph_engine(graph, index));
 	}
+
+    /* (kh) for APR */
+    void init_page_info();
+    void set_boundary_page(unsigned int pg_offset){
+		page_info[pg_offset].boundary = true;
+	}
+    void set_page_likelihood(unsigned int pg_offset, unsigned int likelihood){
+		page_info[pg_offset].likelihood += likelihood;
+	}
+	void store_page_info(size_t data_size, unsigned int num);
+
 
     /**
      * \brief Class destructor
@@ -393,7 +417,7 @@ public:
 	 * but with slightly lower overhead.
 	 * These can only be used in a shared machine.
 	 */
-    
+
     /**
 	 * \brief Permits any vertex to pull any other vertex's state.<br>
 	 * **NOTE:** *This can only be used in a shared machine.*
@@ -403,7 +427,7 @@ public:
 	compute_vertex &get_vertex(vertex_id_t id) {
 		return vertices->get_vertex(id);
 	}
-    
+
     /** \internal */
 	compute_vertex &get_vertex(int part_id, local_vid_t id) {
 		return vertices->get_vertex(part_id, id);
@@ -417,13 +441,13 @@ public:
 	size_t get_vertices(const vertex_id_t ids[], int num, compute_vertex *v_buf[]) {
 		return vertices->get_vertices(ids, num, v_buf);
 	}
-    
+
     /** \internal */
 	size_t get_vertices(int part_id, const local_vid_t ids[], int num,
 			compute_vertex *v_buf[]) {
 		return vertices->get_vertices(part_id, ids, num, v_buf);
 	}
-    
+
     /**
      * \brief Get the maximum vertex ID in the graph.
      * \return The maximum vertex ID in the graph.
@@ -431,7 +455,7 @@ public:
 	vertex_id_t get_max_vertex_id() const {
 		return vertices->get_max_vertex_id();
 	}
-    
+
     /**
      * \brief Get the minimum vertex ID in the graph.
      * \return The the minimum vertex ID in the graph.
@@ -439,7 +463,7 @@ public:
 	vertex_id_t get_min_vertex_id() const {
 		return vertices->get_min_vertex_id();
 	}
-    
+
 
     /**
      * \brief Get the number of vertices in the graph.
@@ -448,7 +472,7 @@ public:
 	size_t get_num_vertices() const {
 		return vertices->get_num_vertices();
 	}
-    
+
     /**
      * \brief Tell a user if the graph is directed or not.
      * \return true if the graph is directed, else false.
@@ -456,7 +480,7 @@ public:
 	bool is_directed() const {
 		return header.is_directed_graph();
 	}
-    
+
     /**
      * \brief Get the graph header info.
      * \return The graph header with all its associated metadata.
@@ -464,13 +488,13 @@ public:
 	const graph_header &get_graph_header() const {
 		return header;
 	}
-    
+
     /**
      * \brief Set the graph computation to use a custom vertex scheduler.
      * \param scheduler The user-defined vertex scheduler.
      */
 	void set_vertex_scheduler(vertex_scheduler::ptr scheduler);
-    
+
     /**
      * \brief Start the graph engine and begin computation on a subset of vertices.
      * \param filter A user defined `vertex_filter` which specifies which vertices
@@ -481,7 +505,7 @@ public:
      */
 	void start(std::shared_ptr<vertex_filter> filter,
 			vertex_program_creater::ptr creater = vertex_program_creater::ptr());
-    
+
     /**
      * \brief Start the graph engine and begin computation on a subset of vertices.
      * \param ids The vertices that should be activated for the first iteration.
@@ -494,7 +518,7 @@ public:
 	void start(const vertex_id_t ids[], int num,
 			vertex_initializer::ptr init = vertex_initializer::ptr(),
 			vertex_program_creater::ptr creater = vertex_program_creater::ptr());
-    
+
     /**
      * \brief Start the graph engine and begin computation on **all** vertices.
      * \param init An initializer used to alter the state of vertices activated
@@ -505,7 +529,7 @@ public:
      */
 	void start_all(vertex_initializer::ptr init = vertex_initializer::ptr(),
 			vertex_program_creater::ptr creater = vertex_program_creater::ptr());
-    
+
     /**
      * \brief Synchronization barrier that waits for the graph algorithm to
 	 *        complete.
@@ -529,7 +553,7 @@ public:
      * \param init An initializer used to alter the state of a vertex.
 	 */
 	void init_vertices(vertex_id_t ids[], int num, vertex_initializer::ptr init);
-    
+
     /**
      * \brief Allows users to initialize **all** vertices to certain state.
      * \param init An initializer used to alter the state of a vertex.
@@ -541,7 +565,7 @@ public:
      * \param query The `vertex_query` you wish to apply to the graph.
 	 */
 	void query_on_all(vertex_query::ptr query);
-    
+
     /**
      * \brief Return The per-thread vertex programs used by the graph engine.
      * \param programs An empty vector that will eventully contain all the vertex progrmas.
@@ -574,7 +598,7 @@ public:
 	 */
 	bool progress_next_level();
 	bool progress_first_level();
-    
+
     /** \internal*/
 	trace_logger::ptr get_logger() const {
 		return logger;
@@ -585,17 +609,17 @@ public:
 	 * Get the file id where the graph data is stored.
 	 */
 	int get_file_id() const;
-    
+
     /**\internal */
 	const graph_partitioner *get_partitioner() const {
 		return &vertices->get_partitioner();
 	}
-    
+
     /**\internal */
 	int get_num_threads() const {
 		return worker_threads.size();
 	}
-    
+
     /**\internal */
 	worker_thread *get_thread(int idx) const {
 		return worker_threads[idx];
@@ -605,7 +629,7 @@ public:
 	 * The following two methods keep track of the number of active vertices
 	 * globally in the current iteration.
 	 */
-    
+
     /**
     * \internal
 	* We have processed the specified number of vertices.

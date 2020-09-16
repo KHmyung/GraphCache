@@ -70,6 +70,8 @@ public:
 			= reinterpret_cast<const vertex_offset *>(next_buf);
 		const vertex_offset *v_curr_off
 			= reinterpret_cast<const vertex_offset *>(curr_buf);
+		//std::cout << v_next_off->get_off() << std::endl;
+		//std::cout << v_curr_off->get_off() << std::endl;
 		return v_next_off->get_off() - v_curr_off->get_off();
 	}
 

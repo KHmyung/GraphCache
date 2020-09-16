@@ -25,6 +25,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <pthread.h>
+#include <fcntl.h>
 #include <math.h>
 #include <list>
 #ifdef USE_NUMA
@@ -43,7 +44,7 @@
 #include "comm_exception.h"
 #include "compute_stat.h"
 
-//#define APR_SAMPLING
+#define APR_SAMPLING
 #define APR_SAMPLE_SIZE 100
 #define BILLION		(1000000001ULL)
 #define calclock(timevalue, total_time, total_count) do { \
@@ -230,7 +231,6 @@ public:
 	clock_eviction_policy() {
 		clock_head = 0;
 	}
-
 	thread_safe_page *evict_page(page_cell<thread_safe_page> &buf);
 };
 
@@ -247,6 +247,14 @@ public:
 			int num_pages, int set_flags, int clear_flags,
 			std::map<off_t, thread_safe_page *> &pages);
 	void assign_flush_scores(page_cell<thread_safe_page> &buf);
+};
+
+class random_eviction_policy: public eviction_policy
+{
+	bool warm_up;
+	int num_entry;
+public:
+	thread_safe_page *evict_page(page_cell<thread_safe_page> &buf);
 };
 
 
@@ -268,6 +276,11 @@ typedef struct {
 
 // KH: APR ghost struct
 
+struct page_info_t {
+	unsigned int likelihood;
+	bool boundary;
+};
+
 struct ghost_t {
 	bool present;
 	bool policy;
@@ -287,7 +300,7 @@ class APR_eviction_policy: public eviction_policy
 	bool sample;
 	bool policy;
 	bool warm_up;
-
+	bool default_policy;
 	unsigned int clock_head;
 	unsigned int lifo_head;
 
@@ -299,6 +312,7 @@ class APR_eviction_policy: public eviction_policy
 	double curr_score;
 	double local_score;
 
+	int num_entry;
 	int hash;
 	double *pow_val;
 	unsigned long time;
@@ -330,7 +344,6 @@ public:
 	thread_safe_page *follower_lifo_evict(page_cell<thread_safe_page> &buf);
 
 	void update_score();
-
 	void update_hash(int x){
 		this->hash = x;
 	}
@@ -443,6 +456,8 @@ class hash_cell
 // KH: APR policy declaration
 #elif defined USE_APR
 	APR_eviction_policy policy;
+#elif defined USE_RANDOM
+	random_eviction_policy policy;
 #endif
 #ifdef USE_SHADOW_PAGE
 	clock_shadow_cell shadow;
@@ -693,10 +708,22 @@ public:
 		return node_id;
 	}
 
-	ssize_t get_file_size() const {
+	void load_page_info(page_info_t *buf, size_t size) {
+		FILE *meta = fopen(APR_META_NAME, "r");
+		int len = 0;
+
+		len = fread(buf, size, 1, meta);
+		assert (len == 1);
+
+		fclose(meta);
+	}
+
+	ssize_t get_file_size(const char* file_name) const {
 		struct stat buf;
-#define FILENAME "/mnt/graph/twitter_graph.adj"
-		if (stat(FILENAME, &buf) < 0) {
+//#define FILENAME "/mnt/graph/twitter_graph.adj"
+//#define FILENAME "/mnt/graph/friendster_graph.adj"
+//#define FILENAME "/mnt/graph/ClueWeb12.adj"
+		if (stat(file_name, &buf) < 0) {
 			perror("stat");
 			return -1;
 		}

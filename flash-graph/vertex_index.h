@@ -153,6 +153,7 @@ public:
 			const std::vector<vertex_entry_type> &vertices) {
 		char *buf = (char *) malloc(vertex_index::get_header_size()
 				+ vertices.size() * sizeof(vertices[0]));
+
 		vertex_index_temp<vertex_entry_type> *index
 			= new (buf) vertex_index_temp<vertex_entry_type>(header);
 		index->h.data.num_entries = vertices.size();
@@ -745,6 +746,16 @@ class in_mem_cdirected_vertex_index: public in_mem_query_vertex_index
 	void init(const directed_vertex_index &index);
 	void init(const cdirected_vertex_index &index);
 public:
+
+	off_t get_start_in_offset(vertex_id_t id){
+		size_t entry_idx = id / ENTRY_SIZE;
+		return entries[entry_idx].get_start_in_off();
+	}
+	off_t get_start_out_offset(vertex_id_t id){
+		size_t entry_idx = id / ENTRY_SIZE;
+		return entries[entry_idx].get_start_out_off();
+	}
+
 	typedef std::shared_ptr<in_mem_cdirected_vertex_index> ptr;
 
 	static ptr cast(in_mem_query_vertex_index::ptr index) {

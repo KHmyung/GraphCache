@@ -267,8 +267,7 @@ void NUMA_buffer::dump(const std::string &file_name)
 		data_info data = get_data(off, write_size);
 		// The total size of all physical buffers may be larger than
 		// the NUMA buffer size.
-		size_t size = std::min(data.second, get_length() - off);
-		if (fwrite(data.first, size, 1, f) != 1) {
+		if (fwrite(data.first, write_size, 1, f) != 1) {
 			int err = errno;
 			fclose(f);
 			throw io_exception(boost::str(boost::format(

@@ -318,8 +318,9 @@ void simple_index_reader::process_self_requests(std::vector<id_range_t> &reqs,
 			compute->init(range, t, type);
 		}
 	}
-	if (compute->get_num_ranges() > 1)
+	if (compute->get_num_ranges() > 1){
 		index_reader->request_index(compute);
+	}
 	else {
 		dense_self_vertex_compute *dense_compute
 			= (dense_self_vertex_compute *) dense_self_req_alloc->alloc();
@@ -582,7 +583,8 @@ static off_range_t get_in_off_range(index_iterator &it, vertex_id_t start_vid,
 	off_t first_off = it.get_curr_off();
 	BOOST_VERIFY(it.move_to(idx_entry_loc + num_vertices - 1));
 	off_t last_off = it.get_curr_off() + it.get_curr_size();
-	return off_range_t(first_off, last_off);
+
+    return off_range_t(first_off, last_off);
 }
 
 static off_range_t get_out_off_range(index_iterator &it, vertex_id_t start_vid,

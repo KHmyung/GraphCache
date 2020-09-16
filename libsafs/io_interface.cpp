@@ -71,6 +71,7 @@ struct global_data_collection
 	// TODO there is memory leak here.
 	cache_config::ptr cache_conf;
 	page_cache::ptr global_cache;
+	std::string file_name;
 	std::vector<int> io_cpus;
 #ifdef PART_IO
 	// For part_global_cached_io
@@ -686,6 +687,7 @@ public:
 file_io_factory::shared_ptr create_io_factory(const std::string &file_name,
 		const int access_option)
 {
+	global_data.file_name = file_name;
 	if (!safs::is_safs_init())
 		throw io_exception("safs isn't init");
 	safs_file f(get_sys_RAID_conf(), file_name);

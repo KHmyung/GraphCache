@@ -582,21 +582,21 @@ public:
     /**
      * \brief Get the number of edges connecting the vertex to othe vertices.
      * \return The number of edges conning the vertex.
-     * \param type The type of edges a user wishes to iterate 
+     * \param type The type of edges a user wishes to iterate
                 over e.g `IN_EDGE`, `OUT_EDGE`.
      */
 	virtual size_t get_num_edges(edge_type type) const = 0;
-    
+
     /**
-     * \brief Get an STL-style const iterator pointing to the *first* neighbor 
+     * \brief Get an STL-style const iterator pointing to the *first* neighbor
             in a vertex's neighbor list.
-     * \return A const iterator pointing to the *first* neighbor in 
+     * \return A const iterator pointing to the *first* neighbor in
             a vertex's neighbor list.
      * \param type The type of edges a user wishes to iterate over
             e.g `IN_EDGE`, `OUT_EDGE`.
      */
 	virtual edge_iterator get_neigh_begin(edge_type type) const = 0;
-    
+
     /**
      * \brief Get an STL-style const iterator pointing to the *end* of
                     a vertex's neighbor list.
@@ -609,7 +609,7 @@ public:
      * \brief Get a java-style sequential const iterator that iterates
 	 *        the neighbors in the specified range.
      * \return A sequential const iterator.
-     * \param type The type of edges a user wishes to iterate over e.g `IN_EDGE`, 
+     * \param type The type of edges a user wishes to iterate over e.g `IN_EDGE`,
      *          `OUT_EDGE`.
 	 * \param start The starting offset in the neighbor list iterated by
 	 *              the sequential iterator.
@@ -618,13 +618,13 @@ public:
      */
 	virtual edge_seq_iterator get_neigh_seq_it(edge_type type,
 			size_t start = 0, size_t end = -1) const = 0;
-    
+
     /**
      * \brief Get the vertex unique ID.
      * \return The vertex unique ID.
      */
 	virtual vertex_id_t get_id() const = 0;
-    
+
     /**
      * \brief Read the edges of the specified type.
      * \param type The type of edges a user wishes to read
@@ -644,7 +644,7 @@ public:
 	virtual bool is_directed() const {
 		return directed;
 	}
-    
+
     /**
      * \internal
      */
@@ -670,13 +670,13 @@ public:
 	}
 
 	using page_vertex::get_num_edges;
-    
+
     /**
      * \brief Get the global number of edges associated with a vertex.
      * \return The number of edges associated with a vertex.
      */
 	virtual size_t get_num_edges() const = 0;
-    
+
     /**
      * \brief Get the number of edges associated with a vertex at a specific time point.
      * \param timestamp The specific time stamp where you want the vertex metadata evaluated.
@@ -684,7 +684,7 @@ public:
      * \return The number of edges associated with a vertex.
      */
 	virtual size_t get_num_edges(int timestamp, edge_type type) const = 0;
-    
+
     /**
      * \brief Get the number of time stamps the vertex has in the graph.
      * \return The number of time stamps the vertex has in the graph.
@@ -692,7 +692,7 @@ public:
 	virtual int get_num_timestamps() const = 0;
 	using page_vertex::get_neigh_begin;
 	using page_vertex::get_neigh_end;
-    
+
     /**
      * \brief Get an STL-style const iterator pointing to the *first* element in the
      *         neighbor list of a vertex at a specific time point.
@@ -703,7 +703,7 @@ public:
      */
 	virtual edge_iterator get_neigh_begin(int timestamp,
 			edge_type type) const = 0;
-    
+
     /**
      * \brief Get an STL-style const iterator pointing to the *end* of the
      *         neighbor list of a vertex at a specific time point.
@@ -743,7 +743,7 @@ public:
 		ext_mem_undirected_vertex v = arr.get<ext_mem_undirected_vertex>(0);
 		return v.get_id();
 	}
-    
+
     /**
 	 * \internal
 	 * The constructor for a directed vertex in the page cache.
@@ -759,6 +759,7 @@ public:
 		if (in_part) {
 			in_size = v.get_size();
 			assert(size >= in_size);
+
 			out_size = 0;
 			this->in_array = &arr;
 			this->out_array = NULL;
@@ -785,16 +786,28 @@ public:
 		size_t size = in_arr.get_size();
 		BOOST_VERIFY(size >= ext_mem_undirected_vertex::get_header_size());
 		ext_mem_undirected_vertex v = in_arr.get<ext_mem_undirected_vertex>(0);
+		// neighbors라는 member를 기준으로 offset을 알아낸 다음
+		// 거기에 edge 개수 * vertex ID 크기 해서 size 계산
 		in_size = v.get_size();
-		assert(size >= in_size);
 		id = v.get_id();
 		num_in_edges = v.get_num_edges();
+		/*
+		std::cout << "id: " << id << std::endl;
+		std::cout << "size: " << size << std::endl;
+		std::cout << "in_size: " << in_size << std::endl;
+		std::cout << "num_in_edges: " << num_in_edges << std::endl;
+		*/
+		if (size < in_size)
+			std::cout << size << "<" << in_size << std::endl;
+		assert(size >= in_size);
 
 		size = out_arr.get_size();
 		assert(size >= ext_mem_undirected_vertex::get_header_size());
 		v = out_arr.get<ext_mem_undirected_vertex>(0);
 		out_size = v.get_size();
 		assert(size >= out_size);
+		if (id != v.get_id())
+			std::cout << id << "!=" << v.get_id() << std::endl;
 		assert(id == v.get_id());
 		num_out_edges = v.get_num_edges();
 	}
@@ -806,7 +819,7 @@ public:
 	size_t get_out_size() const {
 		return out_size;
 	}
-    
+
     /**
      * \brief Get the number of edges associated with a vertex.
      * \param type The type of edges a user wishes to evaluate e.g `IN_EDGE`, `OUT_EDGE`.
@@ -824,7 +837,7 @@ public:
 				throw invalid_arg_exception("invalid edge type");
 		}
 	}
-    
+
     /**
      * \brief Get an STL-style const iterator pointing to the *first* element in the
      *         neighbor list of a vertex.
@@ -847,7 +860,7 @@ public:
 				throw invalid_arg_exception("invalid edge type");
 		}
 	}
-    
+
     /*
      * \brief Get an STL-style const iterator pointing to the *end* of the
      *         neighbor list of a vertex.
@@ -861,7 +874,7 @@ public:
 		it += get_num_edges(type);
 		return it;
 	}
-    
+
     /*
      * \brief Get a java-style sequential const iterator that iterates
 	 *        the neighbors in the specified range.
@@ -896,7 +909,7 @@ public:
 				throw invalid_arg_exception("invalid edge type");
 		}
 	}
-    
+
     /**
      * \brief Get an STL-style const iterator pointing to the *first* element in the
      *         edge data list of a vertex.
@@ -987,7 +1000,7 @@ public:
 		size_t end = get_num_edges(type);
 		return get_data_seq_it<edge_data_type>(type, start, end);
 	}
-    
+
 	virtual size_t read_edges(edge_type type, vertex_id_t edges[],
 			size_t num) const {
 		size_t num_edges;
@@ -1011,7 +1024,7 @@ public:
 		}
 		return num_edges;
 	}
-    
+
     /** \brief Get the id of the vertex
      *  \return The vertex id
      */
@@ -1061,7 +1074,7 @@ public:
 	size_t get_size() const {
 		return vertex_size;
 	}
-    
+
     /**
      * \brief Get the number of edges of a specific `edge_type` associated with the vertex.
      * \param type The type of edge i.e `IN_EDGE`, `OUT_EDGE` are equivalent,
@@ -1098,7 +1111,7 @@ public:
 		it += num_edges;
 		return it;
 	}
-    
+
     /**
      * \brief Get a java-style sequential const iterator for the specified range
      * in a vertex's neighbor list.
@@ -1122,7 +1135,7 @@ public:
 				ext_mem_undirected_vertex::get_header_size()
 				+ end * sizeof(vertex_id_t));
 	}
-    
+
     /**
      * \brief Read the edges of the specified type.
      * \param type The type of edge i.e `IN_EDGE`, `OUT_EDGE` are equivalent,
@@ -1168,7 +1181,7 @@ public:
 		size_t end = get_num_edges();
 		return get_data_seq_it<edge_data_type>(start, end);
 	}
-    
+
     /**
      * \brief Get the vertex ID.
      * \return The vertex ID.

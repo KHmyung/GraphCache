@@ -159,7 +159,6 @@ void message_processor::process_msg(message &msg, bool check_steal)
 
 		// If we are here, we are in the load balancing mode.
 		assert(check_steal);
-		std::cout << "never happend here" << std::endl;
 		for (int i = 0; i < num; i++) {
 			local_vid_t id = v_msgs[i]->get_dest();
 			if (steal_state && steal_state->is_stolen(id)) {
@@ -195,7 +194,7 @@ void message_processor::process_msgs()
 	message msgs[MSG_BUF_SIZE];
 	bool check_steal = false;
 	if (steal_state) {
-		std::cout << "never happened here1" << std::endl;
+//		std::cout << "never happened here1" << std::endl;
 		steal_state->guard_msg_processing();
 		check_steal = steal_state->steal_mode_enabled();
 	}

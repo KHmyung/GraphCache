@@ -176,7 +176,6 @@ public:
 
 		vertex_arr = (vertex_type *) malloc_large(
 				sizeof(vertex_arr[0]) * num_vertices);
-
 		assert(vertex_arr);
 		std::vector<vertex_id_t> local_ids;
 		local_ids.reserve(num_vertices);

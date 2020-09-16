@@ -7,7 +7,7 @@ RAID_mapping=RAID0
 io_depth=64
 
 # The page cache size in SAFS
-cache_size=1G
+cache_size=25G
 
 # The number of NUMA nodes
 num_nodes=1
@@ -25,7 +25,7 @@ root_conf=/home/kh/codes/graph/FlashX/flash-graph/conf/data_files.txt
 # Parameters for FlashGraph
 
 # The number of worker threads to process a graph.
-threads=1
+threads=16
 
 # The max number of vertices being processed in parallel in a worker thread
 # max_processing_vertices=1000

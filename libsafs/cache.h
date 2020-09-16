@@ -105,6 +105,7 @@ protected:
 	bool lref;
 	bool evicted;
 	bool policy;
+	bool boundary;
 	unsigned long stime;
 
 public:
@@ -119,6 +120,7 @@ public:
 		cref = false;
 		evicted = false;
 		policy = false;
+		boundary = false;
 		stime = 0;
 	}
 
@@ -134,6 +136,7 @@ public:
 		cref = false;
 		evicted = false;
 		policy = false;
+		boundary = false;
 		stime = 0;
 	}
 
@@ -253,6 +256,14 @@ public:
 	}
 	void set_cref() {
 		this->cref = true;
+	}
+	void set_boundary() {
+		this->boundary = true;
+	}
+	bool test_and_clear_boundary() {
+		bool ret = this->boundary;
+		this->boundary = false;
+		return ret;
 	}
 
 	void reset_hits() {

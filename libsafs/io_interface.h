@@ -37,6 +37,7 @@
 namespace safs
 {
 
+
 class io_request;
 /**
  * The callback interface to notify the completion of I/O requests.
@@ -449,6 +450,10 @@ public:
 	file_io_factory(const std::string _name);
 
 	virtual ~file_io_factory() {
+	}
+
+	std::string get_file_name() {
+		return name;
 	}
 
 	const safs_header &get_header() const {

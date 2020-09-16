@@ -36,6 +36,7 @@ namespace safs
 
 #define CLOCK 0
 #define LIFO 1
+#define DEFAULT_POLICY LIFO
 
 // APR DEBUG CODE
 
@@ -44,8 +45,11 @@ namespace safs
 //#define APR_DEBUG_TIME_DETAIL
 #define APR_DEBUG_STAT
 #define MILLION (1000000ULL)
-std::mutex ghost_lock;
+std::mutex print_lock;
 ghost_t *global_ghost;
+page_info_t *page_info;
+
+int *access_log;
 
 std::atomic<int> time_check;
 std::atomic<double> global_score;
@@ -177,15 +181,10 @@ int page_cell<T>::get_num_used_pages() const
 }
 
 void hash_cell::init(bool sample){
-/*
-	if (leader) {
-		global_policy = CLOCK;
-		global_score = 0;
-		policy.notify_leader();
-	}
-	*/
+#ifdef USE_APR
 	if (sample)
 		policy.notify_sample();
+#endif
 }
 
 void hash_cell::init(associative_cache *cache, long hash, bool get_pages) {
@@ -374,9 +373,11 @@ page *hash_cell::search(const page_id_t &pg_id)
 page *hash_cell::search(const page_id_t &pg_id, page_id_t &old_id)
 {
 	thread_safe_page *ret = NULL;
+	policy.update_hash(hash);
 	_lock.lock();
 	num_accesses++;
 #ifdef APR_DEBUG_STAT
+	//access_log[pg_id.get_offset()/PAGE_SIZE]++;
 	APR_stats.cache_access++;
 #endif
 
@@ -391,9 +392,6 @@ page *hash_cell::search(const page_id_t &pg_id, page_id_t &old_id)
 	}
 	if (ret == NULL) {
 		num_evictions++;
-#ifdef APR_DEBUG_PRINT
-		std::cout << "\nHashcell: " << hash << std::endl;
-#endif
 #ifdef USE_APR
 		ret = get_empty_page(pg_id.get_offset()/PAGE_SIZE);	// arrange a victim page to reclaim
 #else
@@ -405,6 +403,9 @@ page *hash_cell::search(const page_id_t &pg_id, page_id_t &old_id)
 		}
 #ifdef APR_DEBUG_STAT
 		APR_stats.miss_count++;
+		//print_lock.lock();
+		//std::cout << pg_id.get_offset() << std::endl;
+		//print_lock.unlock();
 		if (ret->get_pg_offset() == -1)
 			APR_stats.cold_miss++;
 #endif
@@ -415,6 +416,9 @@ page *hash_cell::search(const page_id_t &pg_id, page_id_t &old_id)
 		// indicates that the page is in the queue for writing back, so
 		// the flusher doesn't need to add another request to flush the
 		// page. The flag will be cleared after it is removed from the queue.
+
+		if (page_info[pg_id.get_offset()/PAGE_SIZE].boundary == true)
+			ret->set_boundary();
 
 		if (ret->is_dirty() && !ret->is_old_dirty()) {
 			ret->set_dirty(false);
@@ -490,11 +494,11 @@ thread_safe_page *hash_cell::get_empty_page(off_t offset)
 	clock_gettime(CLOCK_MONOTONIC, &local_time[0]);
 #endif
 
-#ifdef APR_DEBUG_PRINT
-	std::cout << "CACHE MISS: " << offset << std::endl;
-#endif
-
+#ifdef USE_APR
 	thread_safe_page *ret = policy.evict_page(buf, offset);
+#else
+	thread_safe_page *ret = policy.evict_page(buf);
+#endif
 	if (ret == NULL) {
 #ifdef APR_DEBUG_PRINT
 		printf("[apr] all pages in the cell were all referenced\n");
@@ -873,6 +877,51 @@ thread_safe_page *clock_eviction_policy::evict_page(
 	return ret;
 }
 
+thread_safe_page *random_eviction_policy::evict_page(
+		page_cell<thread_safe_page> &buf)
+{
+	thread_safe_page *ret = NULL;
+	srand((unsigned int)time(0));
+	int rand_head = 0;
+	unsigned int num_referenced = 0;
+	unsigned int num_dirty = 0;
+	bool avoid_dirty = true;
+	if (warm_up){
+		thread_safe_page *pg = buf.get_page(rand_head % buf.get_num_pages());
+		rand_head++;
+		num_entry++;
+		ret = pg;
+		if (buf.get_num_pages() <= num_entry){
+			warm_up = false;
+		}
+	}
+	else do {
+		rand_head = rand() % buf.get_num_pages();
+		thread_safe_page *pg = buf.get_page(rand_head);
+
+		if (num_dirty + num_referenced >= buf.get_num_pages()) {
+			num_dirty = 0;
+			num_referenced = 0;
+			avoid_dirty = false;
+		}
+		if (pg->get_ref()) {
+			num_referenced++;
+			if (num_referenced >= buf.get_num_pages())
+				return NULL;
+			continue;
+		}
+		if (avoid_dirty && pg->is_dirty()) {
+			num_dirty++;
+			continue;
+		}
+
+		ret = pg;
+	} while (ret == NULL);
+	ret->set_data_ready(false);
+	return ret;
+}
+
+
 // KH: APR : evict_page
 
 void APR_eviction_policy::init()
@@ -881,8 +930,11 @@ void APR_eviction_policy::init()
 	sample = false;
 	clock_head = 0;
 	lifo_head = 0;
+	num_entry = 0;
 	warm_up = true;
-	policy = CLOCK;
+	default_policy = DEFAULT_POLICY;
+	policy = default_policy;
+	local_score = policy;
 	time = 0;
 	last_stime = 0;
 	decay = DECAY_FACTOR_DEFAULT;
@@ -974,7 +1026,7 @@ thread_safe_page *APR_eviction_policy::voter_clock_evict(
 
 	} while (ret == NULL && num_scan < num_scan_max);
 
-	if (warm_up && ret->get_pg_offset() >= 0)
+	if (!default_policy && warm_up && ret->get_pg_offset() >= 0)
 		warm_up = false;
 
 	if (ret)
@@ -997,8 +1049,18 @@ thread_safe_page *APR_eviction_policy::voter_lifo_evict(
 //	std::list<int>::iterator lifo_iter = lifo_lt.end();
 //	lifo_iter--;
 	auto lifo_iter = lifo_lt.rbegin();
+	lifo_iter++;
 
-	do {
+	if (warm_up) {
+		thread_safe_page *pg = buf.get_page(lifo_head % buf.get_num_pages());
+		lifo_head++;
+		num_entry++;
+		ret = pg;
+		if (buf.get_num_pages() <= num_entry){
+			warm_up = false;
+		}
+	}
+	else do {
 		unsigned int lifo_offset = *lifo_iter;
 		lifo_iter++;
 
@@ -1028,15 +1090,13 @@ thread_safe_page *APR_eviction_policy::voter_lifo_evict(
 			num_dirty++;
 			continue;
 		}
-/*		TODO it might be necessary for some algorithms such as cycle_tirangle
-		if (test_and_clear_lifo(pg)){
-			num_referenced++;
+		if (pg->test_and_clear_boundary()){
 #ifdef APR_DEBUG_PRINT
-			std::cout << "(LIFO) Hit : " << lifo_offset << std::endl;
+			std::cout << "(LIFO) this is boundary page : " << lifo_offset << std::endl;
 #endif
 			continue;
 		}
-*/
+
 		if (policy_lifo()) {
 			if(lifo_page[lifo_offset].stale) {
 #ifdef APR_DEBUG_PRINT
@@ -1211,6 +1271,8 @@ thread_safe_page *APR_eviction_policy::follower_clock_evict(
 		}
 		if (pg->get_hits() == 0) {
 			ret = pg;
+			//lifo_lt.remove(clock_head);
+			//lifo_lt.push_back(clock_head);
 			break;
 		}
 		pg->reset_hits();
@@ -1229,12 +1291,20 @@ thread_safe_page *APR_eviction_policy::follower_lifo_evict(
 	unsigned int num_referenced = 0;
 	bool avoid_dirty = true;
 
-	// TODO change iterator to reverse_iterator (use auto)
-	//std::list<int>::iterator lifo_iter = lifo_lt.end();
-	//lifo_iter--;
 	auto lifo_iter = lifo_lt.rbegin();
+	lifo_iter++;
 
-	do{
+	if (warm_up) {
+		assert(default_policy == LIFO);
+		thread_safe_page *pg = buf.get_page(lifo_head % buf.get_num_pages());
+		lifo_head++;
+		num_entry++;
+		ret = pg;
+		if (buf.get_num_pages() <= num_entry){
+			warm_up = false;
+		}
+	}
+	else do{
 		unsigned int lifo_offset = *lifo_iter;
 		lifo_iter++;
 
@@ -1258,13 +1328,15 @@ thread_safe_page *APR_eviction_policy::follower_lifo_evict(
 			num_dirty++;
 			continue;
 		}
+		if (pg->test_and_clear_boundary())
+			continue;
+
 		ret = pg;
 		lifo_head = lifo_offset;
 		lifo_lt.remove(lifo_head);
 		lifo_lt.push_back(lifo_head);
 	} while (ret == NULL);
 	ret->set_data_ready(false);
-
 	return ret;
 
 }
@@ -1291,6 +1363,9 @@ void APR_eviction_policy::update_score()
 		std::cout << "Global Score : " << old;
 		std::cout << " -> " << old + curr_score << std::endl;
 #endif
+		print_lock.lock();
+		std::cout << old + curr_score << std::endl;
+		print_lock.unlock();
 	}
 }
 
@@ -1302,13 +1377,12 @@ thread_safe_page *APR_eviction_policy::evict_page(
 	thread_safe_page *ret = NULL;
 	curr_score = 0;
 
-#ifdef APR_SAMPLING
+	if (this->sample) {
 #ifdef APR_DEBUG_PRINT
+	std::cout << "\nHashcell: " << hash << std::endl;
+	std::cout << "CACHE MISS: " << offset << std::endl;
 	std::cout << "Global policy is " << (global_policy ? "LIFO" : "CLOCK") << std::endl;
 #endif
-#endif
-
-	if (this->sample) {
 		thread_safe_page *lifo_victim, *clock_victim, *actual_victim;
 
 		if(local_score > 0)
@@ -1325,16 +1399,23 @@ thread_safe_page *APR_eviction_policy::evict_page(
 			eval_challenge(offset);
 		}
 
-		clock_victim = voter_clock_evict(buf);
-
+		/* if warm-up process is proceeding */
+		if (warm_up) {
+			/* fill up entries under clock policy */
+			if (default_policy == CLOCK)
+				actual_victim = voter_clock_evict(buf);
+			else if (default_policy == LIFO)
+				actual_victim = voter_lifo_evict(buf);
+		}
+		else {
+			clock_victim = voter_clock_evict(buf);
 #ifdef APR_DEBUG_PRINT
-		if (clock_victim)
-			std::cout << "CLOCK Victim: " << clock_victim->get_pg_offset()
-				<< " ("<< (clock_head - 1) % npages << ")" << std::endl;
-		else std::cout << "CLOCK Victim is NULL" << std::endl;
+			if (clock_victim)
+				std::cout << "CLOCK Victim: " << clock_victim->get_pg_offset()
+					<< " ("<< (clock_head - 1) % npages << ")" << std::endl;
+			else std::cout << "CLOCK Victim is NULL" << std::endl;
 #endif
 
-		if (!warm_up) {
 			lifo_victim = voter_lifo_evict(buf);
 
 #ifdef APR_DEBUG_PRINT
@@ -1371,10 +1452,11 @@ thread_safe_page *APR_eviction_policy::evict_page(
 #endif
 		}
 #endif
-		ret = (warm_up ? clock_victim : actual_victim);
+		ret = actual_victim;
 	}
 	else {
-		policy = global_policy;
+		if (!warm_up)
+			policy = global_policy;
 		if(policy_clock())
 			ret = follower_clock_evict(buf);
 		else
@@ -1383,7 +1465,7 @@ thread_safe_page *APR_eviction_policy::evict_page(
 
 	return ret;
 }
-/*
+/* no sampling
 #else
 thread_safe_page *APR_eviction_policy::evict_page(
 		page_cell<thread_safe_page> &buf, off_t offset)
@@ -1986,6 +2068,14 @@ associative_cache::~associative_cache()
 			APR_global_stats.miss_count += cell->APR_miss_count();
 			APR_global_stats.cold_miss += cell->APR_cold_miss();
 	}
+
+
+/*
+	for (int i = 0; i < get_file_size(APR_FILE_NAME)/PAGE_SIZE; i++){
+		std::cout << access_log[i] << std::endl;
+	}
+*/
+
 	std::cout << "[-CACHE STATISTICS-]" << std::endl;
 	std::cout << "cache access: " << APR_global_stats.cache_access << std::endl;
 	std::cout << "cache hit: " << APR_global_stats.hit_count << std::endl;
@@ -2315,10 +2405,14 @@ associative_cache::associative_cache(long cache_size, long max_cache_size,
 	init_ncells = npages / min_cell_size;
 
 #ifdef USE_APR
-	global_ghost = new ghost_t[get_file_size()/PAGE_SIZE+1]();
+	global_score = DEFAULT_POLICY;
+	global_policy = DEFAULT_POLICY;
+	global_ghost = new ghost_t[get_file_size(APR_FILE_NAME)/PAGE_SIZE+1]();
+	unsigned int metasize = get_file_size(APR_META_NAME);
+	page_info = new page_info_t[metasize]();
+	load_page_info(page_info, metasize);
 #endif
 	time_init(1, &cache_time);
-
 
 	// KH: create classes of hash_cell (count = npages/12)
 	hash_cell *cells = hash_cell::create_array(node_id, init_ncells);
