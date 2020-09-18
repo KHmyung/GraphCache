@@ -83,6 +83,7 @@ class page
 	 */
 	// KH: page offset in file
 	int offset;
+	pthread_t th_id;
 	file_id_t file_id;
 	/* offset in the file in bytes */
 	void set_offset(off_t off) {
@@ -121,6 +122,7 @@ public:
 		evicted = false;
 		policy = false;
 		boundary = false;
+		th_id = 0;
 		stime = 0;
 	}
 
@@ -257,13 +259,19 @@ public:
 	void set_cref() {
 		this->cref = true;
 	}
-	void set_boundary() {
+	void set_boundary(pthread_t id) {
 		this->boundary = true;
+		this->th_id = id;
 	}
-	bool test_and_clear_boundary() {
-		bool ret = this->boundary;
+	bool check_boundary(){
+		return boundary;
+	}
+	void clear_boundary() {
+		this->th_id = 0;
 		this->boundary = false;
-		return ret;
+	}
+	pthread_t get_boundary_id(){
+		return this->th_id;
 	}
 
 	void reset_hits() {

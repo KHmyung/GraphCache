@@ -27,10 +27,14 @@
 #include <string>
 #include <memory>
 
-//#define APR_FILE_NAME "/mnt/graph/twitter_graph.adj"
+#define APR_FILE_NAME "/mnt/graph/twitter_graph.adj"
+#define APR_META_NAME "/mnt/graph/meta/twitter.tmp"
+
 //#define APR_FILE_NAME "/mnt/graph/friendster_graph.adj"
-#define APR_FILE_NAME "/mnt/graph/ClueWeb12.adj"
-#define APR_META_NAME "/mnt/graph/meta/clueweb.tmp"
+
+//#define APR_FILE_NAME "/mnt/graph/ClueWeb12.adj"
+//#define APR_META_NAME "/mnt/graph/meta/clueweb.tmp"
+
 #define USE_APR
 //#define USE_CLOCK
 //#define USE_LIFO

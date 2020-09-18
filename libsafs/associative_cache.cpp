@@ -373,8 +373,10 @@ page *hash_cell::search(const page_id_t &pg_id)
 page *hash_cell::search(const page_id_t &pg_id, page_id_t &old_id)
 {
 	thread_safe_page *ret = NULL;
-	policy.update_hash(hash);
 	_lock.lock();
+	policy.update_hash(hash);
+	pthread_t th_id;
+	th_id = pthread_self();
 	num_accesses++;
 #ifdef APR_DEBUG_STAT
 	//access_log[pg_id.get_offset()/PAGE_SIZE]++;
@@ -386,6 +388,14 @@ page *hash_cell::search(const page_id_t &pg_id, page_id_t &old_id)
 		if (buf.get_page(i)->get_offset() == pg_id.get_offset()
 				&& buf.get_page(i)->get_file_id() == pg_id.get_file_id()) {
 			ret = buf.get_page(i);
+#ifdef APR_DEBUG_PRINT
+			if (policy.check_sample()){
+				std::cout << "\nHashcell: " << hash << " (Thread " << th_id << ")" << std::endl;
+				std::cout << "CACHE HIT: " << pg_id.get_offset()/PAGE_SIZE << std::endl;
+			}
+#endif
+			if (th_id != ret->get_boundary_id())
+				ret->clear_boundary();
 			APR_stats.hit_count++;
 			break;
 		}
@@ -401,6 +411,16 @@ page *hash_cell::search(const page_id_t &pg_id, page_id_t &old_id)
 			_lock.unlock();
 			return NULL;
 		}
+
+		if (page_info[pg_id.get_offset()/PAGE_SIZE].boundary){
+#ifdef APR_DEBUG_PRINT
+			if (policy.check_sample()){
+				std::cout << "boundary set : " << pg_id.get_offset()/PAGE_SIZE << std::endl;
+			}
+#endif
+			ret->set_boundary(th_id);
+		}
+
 #ifdef APR_DEBUG_STAT
 		APR_stats.miss_count++;
 		//print_lock.lock();
@@ -416,9 +436,6 @@ page *hash_cell::search(const page_id_t &pg_id, page_id_t &old_id)
 		// indicates that the page is in the queue for writing back, so
 		// the flusher doesn't need to add another request to flush the
 		// page. The flag will be cleared after it is removed from the queue.
-
-		if (page_info[pg_id.get_offset()/PAGE_SIZE].boundary == true)
-			ret->set_boundary();
 
 		if (ret->is_dirty() && !ret->is_old_dirty()) {
 			ret->set_dirty(false);
@@ -1042,8 +1059,10 @@ thread_safe_page *APR_eviction_policy::voter_lifo_evict(
 	unsigned int num_scan = 0;
 	unsigned int num_dirty = 0;
 	unsigned int num_referenced = 0;
+	unsigned int num_boundary = 0;
 	unsigned int num_scan_max = 2 * buf.get_num_pages();
 	bool avoid_dirty = true;
+	bool avoid_boundary = true;
 
 	// TODO change iterator to reverse_iterator (use auto)
 //	std::list<int>::iterator lifo_iter = lifo_lt.end();
@@ -1072,10 +1091,12 @@ thread_safe_page *APR_eviction_policy::voter_lifo_evict(
 #ifdef APR_DEBUG_PRINT
 		std::cout << "LIFO Offset : " << lifo_offset << std::endl;
 #endif
-		if (num_dirty + num_referenced  >= buf.get_num_pages()){
+		if (num_dirty + num_referenced + num_boundary  >= buf.get_num_pages()){
 			num_dirty = 0;
+			num_boundary = 0;
 			num_referenced = 0;
 			avoid_dirty = false;
+			avoid_boundary = false;
 		}
 		if (pg->get_ref()) {
 #ifdef APR_DEBUG_PRINT
@@ -1090,11 +1111,16 @@ thread_safe_page *APR_eviction_policy::voter_lifo_evict(
 			num_dirty++;
 			continue;
 		}
-		if (pg->test_and_clear_boundary()){
+		if (pg->check_boundary()){
+			if (avoid_boundary){
 #ifdef APR_DEBUG_PRINT
-			std::cout << "(LIFO) this is boundary page : " << lifo_offset << std::endl;
+				std::cout << "(LIFO) this is boundary page : " <<
+					pg->get_pg_offset() << " (" << lifo_offset << ")" << std::endl;
 #endif
-			continue;
+				num_boundary++;
+				continue;
+			}
+			else pg->clear_boundary();
 		}
 
 		if (policy_lifo()) {
@@ -1287,9 +1313,11 @@ thread_safe_page *APR_eviction_policy::follower_lifo_evict(
 		page_cell<thread_safe_page> &buf)
 {
 	thread_safe_page *ret = NULL;
+	unsigned int num_boundary = 0;
 	unsigned int num_dirty = 0;
 	unsigned int num_referenced = 0;
 	bool avoid_dirty = true;
+	bool avoid_boundary = true;
 
 	auto lifo_iter = lifo_lt.rbegin();
 	lifo_iter++;
@@ -1313,10 +1341,12 @@ thread_safe_page *APR_eviction_policy::follower_lifo_evict(
 
 		thread_safe_page *pg = buf.get_page(lifo_offset);
 
-		if (num_referenced + num_dirty >= buf.get_num_pages()) {
+		if (num_referenced + num_dirty + num_boundary >= buf.get_num_pages()) {
 			num_referenced = 0;
 			num_dirty = 0;
+			num_boundary = 0;
 			avoid_dirty = false;
+			avoid_boundary = false;
 		}
 		if (pg->get_ref()) {
 			num_referenced++;
@@ -1328,8 +1358,13 @@ thread_safe_page *APR_eviction_policy::follower_lifo_evict(
 			num_dirty++;
 			continue;
 		}
-		if (pg->test_and_clear_boundary())
-			continue;
+		if (pg->check_boundary()){
+			if (avoid_boundary){
+				num_boundary++;
+				continue;
+			}
+			else pg->clear_boundary();
+		}
 
 		ret = pg;
 		lifo_head = lifo_offset;
@@ -1344,7 +1379,6 @@ thread_safe_page *APR_eviction_policy::follower_lifo_evict(
 void APR_eviction_policy::update_score()
 {
 	if (curr_score){
-
 		double old = global_score.load();
 		double desired = old + curr_score;
 		while(!global_score.compare_exchange_weak(old, desired,
@@ -1355,7 +1389,7 @@ void APR_eviction_policy::update_score()
 		if (global_policy == CLOCK && desired > 0)
 			global_policy = LIFO;
 		else if (global_policy == LIFO && desired <=0)
-		   	global_policy = CLOCK;
+			global_policy = CLOCK;
 		//std::cout << global_policy << std::endl;
 
 #ifdef APR_DEBUG_PRINT
@@ -1379,9 +1413,11 @@ thread_safe_page *APR_eviction_policy::evict_page(
 
 	if (this->sample) {
 #ifdef APR_DEBUG_PRINT
-	std::cout << "\nHashcell: " << hash << std::endl;
-	std::cout << "CACHE MISS: " << offset << std::endl;
-	std::cout << "Global policy is " << (global_policy ? "LIFO" : "CLOCK") << std::endl;
+		pthread_t th_id;
+		th_id = pthread_self();
+		std::cout << "\nHashcell: " << hash << " (Thread " << th_id << ")" << std::endl;
+		std::cout << "CACHE MISS: " << offset << std::endl;
+		std::cout << "Global policy is " << (global_policy ? "LIFO" : "CLOCK") << std::endl;
 #endif
 		thread_safe_page *lifo_victim, *clock_victim, *actual_victim;
 
@@ -1862,6 +1898,28 @@ void APR_eviction_policy::start_challenge(
 	pg->set_evicted(policy);
 	pg->set_stime(time);
 }
+/*
+bool APR_eviction_policy::hit_check(
+		thread_safe_page *pg)
+{
+	curr_score = 0;
+	if (pg->is_evicted()){
+		if (pg->evicted_by_lifo()){
+#ifdef APR_DEBUG_PRINT
+			std::cout << "This was v-evicted by LIFO" << std::endl;
+#endif
+			end_challenge(pg->get_stime(), CLOCK);
+		}
+		else {
+#ifdef APR_DEBUG_PRINT
+			std::cout << "This was v-evicted by CLOCK" << std::endl;
+#endif
+			end_challenge(pg->get_stime(), LIFO);
+		}
+		update_score();
+	}
+}
+*/
 
 bool APR_eviction_policy::test_and_clear_clock(
 		thread_safe_page *pg)
@@ -1955,7 +2013,6 @@ void APR_eviction_policy::reg_ghost(
 bool APR_eviction_policy::eval_challenge(off_t offset)
 {
 	bool winner;
-
 	/* Discover Which policy win for the ghost page */
 	if(global_ghost[offset].policy == LIFO)
 		winner = CLOCK;
@@ -1982,7 +2039,6 @@ bool APR_eviction_policy::eval_challenge(off_t offset)
 void APR_eviction_policy::end_challenge(unsigned long stime, bool winner)
 {
 	double reward;
-
 #ifdef APR_DEBUG_PRINT
 	std::cout << "Start time of the challenge: " << stime;
 	std::cout << " / Current time: " << time << std::endl;
@@ -2005,7 +2061,6 @@ void APR_eviction_policy::end_challenge(unsigned long stime, bool winner)
 bool APR_eviction_policy::eval_challenge(thread_safe_page *pg)
 {
 	bool winner;
-
 	/* Discover which policy wins on the ghost page */
 	if (pg->evicted_by_lifo())
 		winner = CLOCK;
@@ -2068,8 +2123,6 @@ associative_cache::~associative_cache()
 			APR_global_stats.miss_count += cell->APR_miss_count();
 			APR_global_stats.cold_miss += cell->APR_cold_miss();
 	}
-
-
 /*
 	for (int i = 0; i < get_file_size(APR_FILE_NAME)/PAGE_SIZE; i++){
 		std::cout << access_log[i] << std::endl;

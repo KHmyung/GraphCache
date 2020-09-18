@@ -356,6 +356,10 @@ public:
 		sample  = true;
 	}
 
+	bool check_sample(){
+		return sample;
+	}
+
 	bool policy_lifo(){
 		return this->policy;
 	}
@@ -369,6 +373,7 @@ public:
 	double spow(double base, unsigned long power);
 	void update_lifo_list(int pg_idx);
 
+	//bool hit_check(thread_safe_page *pg);
 	bool test_and_clear_clock(thread_safe_page *pg);
 	bool test_and_clear_lifo(thread_safe_page *pg);
 

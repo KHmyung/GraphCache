@@ -593,7 +593,7 @@ void graph_engine::init(graph_index::ptr index)
 }
 
 
-//#define DEBUG_LIKELIHOOD
+//#define DEBUG_OUT_LIKELIHOOD
 void graph_engine::init_page_info()
 {
 /* base byte to store edge attributes for each vertex */
@@ -643,7 +643,7 @@ void graph_engine::init_page_info()
 		if ( !(next_offset % PAGE_SIZE))
 			last_page_offset--;
 
-#ifdef DEBUG_LIKELIHOOD
+#ifdef DEBUG_IN_LIKELIHOOD
 		std::cout << "\nVertex: " << vertex << " (of " << get_num_vertices() << ")" << std::endl;
 		std::cout << "Edge_offset: " << edge_offset << " (+" << byte_delta << ")" << std::endl;
 		std::cout << "Page_offset: " << first_page_offset << "~" << last_page_offset << std::endl;
@@ -653,15 +653,26 @@ void graph_engine::init_page_info()
 		if ( !(vertex % ENTRY_UNIT))
 			assert(curr_offset == my_index->get_start_in_offset(vertex));
 
+		if ( !(vertex % PART_SIZE)){
+			//part_offset += PART_SIZE;
+			/* mark boundary pages (to give a second opportunity) */
+			for (unsigned int i = first_page_offset; i <= last_page_offset; i++){
+				set_boundary_page(i);
+#ifdef DEBUG_IN_LIKELIHOOD
+				std::cout << "Page " << i << " is a boundary page (vertex " << vertex << ")" << std::endl;
+#endif
+			}
+		}
+
 		if ( !get_num_edges(vertex, IN_EDGE)){
-#ifdef DEBUG_LIKELIHOOD
+#ifdef DEBUG_IN_LIKELIHOOD
 			std::cout << "No in-edge, pass vertex " << vertex << std::endl;
 #endif
 			if (edge_offset > PAGE_SIZE){
 				/* conclude the likelihood of this page */
 				set_page_likelihood(first_page_offset, p_likelihood);
 				edge_offset %= PAGE_SIZE;
-#ifdef DEBUG_LIKELIHOOD
+#ifdef DEBUG_IN_LIKELIHOOD
 				std::cout << "p_likelihood (" << first_page_offset << "): " << p_likelihood << std::endl;
 #endif
 				p_likelihood = 0;
@@ -669,20 +680,9 @@ void graph_engine::init_page_info()
 			continue;
 		}
 
-		if (vertex >= part_offset){
-			part_offset += PART_SIZE;
-			/* mark boundary pages (to give a second opportunity) */
-			for (unsigned int i = first_page_offset; i <= last_page_offset; i++){
-				set_boundary_page(i);
-#ifdef DEBUG_LIKELIHOOD
-				std::cout << "Page " << i << " is a boundary page (vertex " << vertex << ")" << std::endl;
-#endif
-			}
-		}
-
         /* page likelihood */
 		p_likelihood += v_likelihood;
-#ifdef DEBUG_LIKELIHOOD
+#ifdef DEBUG_IN_LIKELIHOOD
 		std::cout << "p_likelihood: " << p_likelihood << " (+" << v_likelihood << ")" << std::endl;
 #endif
         /* check if edge offset exceeds the page size  */
@@ -694,14 +694,14 @@ void graph_engine::init_page_info()
 		set_page_likelihood(first_page_offset, p_likelihood);
 		edge_offset %= PAGE_SIZE;
 
-#ifdef DEBUG_LIKELIHOOD
+#ifdef DEBUG_IN_LIKELIHOOD
 		std::cout << "p_likelihood (" << first_page_offset << "): " << p_likelihood << std::endl;
 #endif
 		p_likelihood = v_likelihood;
 
 		for (unsigned int i = first_page_offset + 1; i <= last_page_offset; i++){
 			set_page_likelihood(i, v_likelihood);
-#ifdef DEBUG_LIKELIHOOD
+#ifdef DEBUG_IN_LIKELIHOOD
 			std::cout << "p_likelihood (" << i << "): " << v_likelihood << " (by carry)" << std::endl;
 #endif
 		}
@@ -727,7 +727,7 @@ void graph_engine::init_page_info()
 		if ( !(next_offset % PAGE_SIZE))
 			last_page_offset--;
 
-#ifdef DEBUG_LIKELIHOOD
+#ifdef DEBUG_OUT_LIKELIHOOD
 		std::cout << "\nVertex: " << vertex << " (of " << get_num_vertices() << ")" << std::endl;
 		std::cout << "Edge_offset: " << edge_offset << " (+" << byte_delta << ")" << std::endl;
 		std::cout << "Page_offset: " << first_page_offset << "~" << last_page_offset << std::endl;
@@ -737,15 +737,26 @@ void graph_engine::init_page_info()
 		if ( !(vertex % ENTRY_UNIT))
 			assert(curr_offset == my_index->get_start_out_offset(vertex));
 
+		if ( !(vertex % PART_SIZE)){
+			//part_offset += PART_SIZE;
+			/* mark boundary pages (to give a second opportunity) */
+			for (unsigned int i = first_page_offset; i <= last_page_offset; i++){
+				set_boundary_page(i);
+#ifdef DEBUG_OUT_LIKELIHOOD
+				std::cout << "Page " << i << " is a boundary page (vertex " << vertex << ")" << std::endl;
+#endif
+			}
+		}
+
 		if ( !get_num_edges(vertex, OUT_EDGE)){
-#ifdef DEBUG_LIKELIHOOD
+#ifdef DEBUG_OUT_LIKELIHOOD
 			std::cout << "No out-edge, pass vertex " << vertex << std::endl;
 #endif
 			if (edge_offset > PAGE_SIZE){
 				/* conclude the likelihood of this page */
 				set_page_likelihood(first_page_offset, p_likelihood);
 				edge_offset %= PAGE_SIZE;
-#ifdef DEBUG_LIKELIHOOD
+#ifdef DEBUG_OUT_LIKELIHOOD
 				std::cout << "p_likelihood (" << first_page_offset << "): " << p_likelihood << std::endl;
 #endif
 				p_likelihood = 0;
@@ -753,20 +764,9 @@ void graph_engine::init_page_info()
 			continue;
 		}
 
-		if (vertex >= part_offset){
-			part_offset += PART_SIZE;
-			/* mark boundary pages (to give a second opportunity) */
-			for (unsigned int i = first_page_offset; i <= last_page_offset; i++){
-				set_boundary_page(i);
-#ifdef DEBUG_LIKELIHOOD
-				std::cout << "Page " << i << " is a boundary page (vertex " << vertex << ")" << std::endl;
-#endif
-			}
-		}
-
         /* page likelihood */
 		p_likelihood += v_likelihood;
-#ifdef DEBUG_LIKELIHOOD
+#ifdef DEBUG_OUT_LIKELIHOOD
 		std::cout << "p_likelihood: " << p_likelihood << " (+" << v_likelihood << ")" << std::endl;
 #endif
         /* check if edge offset exceeds the page size  */
@@ -777,14 +777,14 @@ void graph_engine::init_page_info()
 		set_page_likelihood(first_page_offset, p_likelihood);
 		edge_offset %= PAGE_SIZE;
 
-#ifdef DEBUG_LIKELIHOOD
+#ifdef DEBUG_OUT_LIKELIHOOD
 		std::cout << "p_likelihood (" << first_page_offset << "): " << p_likelihood << std::endl;
 #endif
 		p_likelihood = v_likelihood;
 
 		for (unsigned int i = first_page_offset + 1; i <= last_page_offset; i++){
 			set_page_likelihood(i, v_likelihood);
-#ifdef DEBUG_LIKELIHOOD
+#ifdef DEBUG_OUT_LIKELIHOOD
 			std::cout << "p_likelihood (" << i << "): " << v_likelihood << " (by carry)" << std::endl;
 #endif
 		}
@@ -794,14 +794,14 @@ void graph_engine::init_page_info()
 	set_page_likelihood(first_page_offset, p_likelihood);
 	edge_offset %= PAGE_SIZE;
 
-#ifdef DEBUG_LIKELIHOOD
+#ifdef DEBUG_OUT_LIKELIHOOD
 	std::cout << "p_likelihood (" << first_page_offset << "): " << p_likelihood << std::endl;
 #endif
 	p_likelihood = v_likelihood;
 
 	for (unsigned int i = first_page_offset + 1; i <= last_page_offset; i++){
 		set_page_likelihood(i, v_likelihood);
-#ifdef DEBUG_LIKELIHOOD
+#ifdef DEBUG_OUT_LIKELIHOOD
 		std::cout << "p_likelihood (" << i << "): " << v_likelihood << " (by carry)" << std::endl;
 #endif
 	}
@@ -812,14 +812,15 @@ void graph_engine::init_page_info()
 		if (page_info[i].boundary == true)
 			std::cout << i << " : boundary page" << std::endl;
     }
-	exit(1);
 	store_page_info(sizeof(struct page_info_t), last_page_offset);
+	exit(1);
 
 }
 
 void graph_engine::store_page_info(size_t data_size, unsigned int num)
 {
-	std::string path = "/mnt/graph/meta/friendster.tmp";
+	//std::string path = "/mnt/graph/meta/clueweb.tmp";
+	std::string path = "/mnt/graph/meta/twitter.tmp";
 
 	FILE* meta = fopen(path.c_str(), "w+");
 	fwrite(&page_info[0], data_size, num, meta);
